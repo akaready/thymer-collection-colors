@@ -1,0 +1,18 @@
+{
+	"ver": 1,
+	"name": "Collection Colors",
+	"icon": "palette",
+	"description": "Color collection icons and labels in the sidebar. One install, applies to every collection.",
+	"instructions": "Set where collection colors appear in the sidebar and breadcrumbs. Sidebar targets: collection title icon, collection title, page icon, and page — use the tint toggles to offset hues per target. Highlighted applies the same text and icon treatment when a row is keyboard-focused or is the page open in the panel (including the collection title icon when the sidebar is collapsed): None leaves Thymer's colors, Auto picks readable contrast, Tint shifts to another Tailwind shade (50–950) with optional invert for the other theme. Click a collection to pick its color; per-collection overrides sit below the picker.",
+	"author": "@akaready",
+	"homepage": "https://akaready.com",
+	"repository": "https://github.com/akaready/thymer-collection-colors",
+	"coffee": "https://buymeacoffee.com/akaready",
+	"version": "1.0.0",
+	"__source_repo": "https://github.com/akaready/thymer-collection-colors",
+	"__source_files": {
+		"branch": "main",
+		"json": "plugin.json",
+		"js": "plugin.js"
+	}
+}
