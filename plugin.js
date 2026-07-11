@@ -2165,11 +2165,12 @@ var plugins = (() => {
   __name(syncPluginVersionOnLoad, "syncPluginVersionOnLoad");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.2.1";
+  var PLUGIN_VERSION = "1.2.3";
   var ROOT_CLASS = "plg-collection-colors";
   var PANEL_TYPE = "settings";
-  var SIDEBAR_SEPERATOR_PLUGIN_KEY = "sidebarSeperators";
-  var SIDEBAR_SEPERATOR_COLLECTION_NAME = "\u200B";
+  var SIDEBAR_SEPARATOR_PLUGIN_KEY = "sidebarSeparators";
+  var SIDEBAR_SEPARATOR_PLUGIN_KEY_LEGACY = "sidebarSeperators";
+  var SIDEBAR_SEPARATOR_COLLECTION_NAME = "\u200B";
   var TINT_STYLE_ID = "plg-collection-colors-tint";
   var SIDEBAR_ROOT_ATTR = "data-plg-coll-sidebar";
   var COLL_GUID_ATTR = "data-plg-coll-guid";
@@ -2384,7 +2385,7 @@ var plugins = (() => {
     _collections = [];
     /** @type {string} */
     _collectionSearch = "";
-    /** When true, collections marked by Sidebar Seperators are omitted from the list. */
+    /** When true, collections marked by Sidebar Separators are omitted from the list. */
     _hideSeparators = true;
     /**
      * Active palette-preset preview, or null. `colors` maps guid→hex for the
@@ -3733,7 +3734,7 @@ var plugins = (() => {
       });
     }
     /**
-     * Detect a Sidebar Seperators collection via its config marker (primary) or
+     * Detect a Sidebar Separators collection via its config marker (primary) or
      * the zero-width-space name the plugin assigns (legacy / pre-marker rows).
      * @param {PluginCollectionAPI} collection
      */
@@ -3741,12 +3742,12 @@ var plugins = (() => {
       try {
         const conf = collection.getConfiguration && collection.getConfiguration();
         const custom = conf && conf.custom && typeof conf.custom === "object" ? conf.custom : null;
-        const marker = custom && custom[SIDEBAR_SEPERATOR_PLUGIN_KEY];
+        const marker = custom && (custom[SIDEBAR_SEPARATOR_PLUGIN_KEY] || custom[SIDEBAR_SEPARATOR_PLUGIN_KEY_LEGACY]);
         if (marker && marker.isSeparator === true) return true;
       } catch {
       }
       const name = typeof collection.getName === "function" ? collection.getName() : "";
-      return String(name) === SIDEBAR_SEPERATOR_COLLECTION_NAME;
+      return String(name) === SIDEBAR_SEPARATOR_COLLECTION_NAME;
     }
     /** @param {string} guid */
     _isSidebarSeparatorGuid(guid) {
@@ -4211,7 +4212,7 @@ var plugins = (() => {
           );
         });
         hideLabel.appendChild(hideCb);
-        hideLabel.appendChild(el("span", `${ROOT_CLASS}__hide-separators-label`, "Hide seperators"));
+        hideLabel.appendChild(el("span", `${ROOT_CLASS}__hide-separators-label`, "Hide separators"));
         toolbar.appendChild(hideLabel);
         body.appendChild(this._renderPresetRow());
         body.appendChild(toolbar);
