@@ -2165,7 +2165,7 @@ var plugins = (() => {
   __name(syncPluginVersionOnLoad, "syncPluginVersionOnLoad");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.0.1";
+  var PLUGIN_VERSION = "1.2.1";
   var ROOT_CLASS = "plg-collection-colors";
   var PANEL_TYPE = "settings";
   var SIDEBAR_SEPERATOR_PLUGIN_KEY = "sidebarSeperators";
@@ -2173,11 +2173,14 @@ var plugins = (() => {
   var TINT_STYLE_ID = "plg-collection-colors-tint";
   var SIDEBAR_ROOT_ATTR = "data-plg-coll-sidebar";
   var COLL_GUID_ATTR = "data-plg-coll-guid";
+  var MENU_NEW_ATTR = "data-plg-coll-new";
   var ACTIVE_ATTR = "data-plg-coll-active";
   var THYMER_ROW_FOCUSED = ".sidebar-item-hoverable.is-focused";
   var APPLY_TO_DEFAULT = "icon+text";
   var SIDEBAR_TARGET_DEFAULT = ["titleIcon", "title"];
-  var BREADCRUMB_TARGET_DEFAULT = [];
+  var BREADCRUMB_TARGET_DEFAULT = ["title", "bg"];
+  var MENU_TARGET_DEFAULT = ["icon", "text", "subtext"];
+  var MENU_NEW_TARGET_DEFAULT = ["icon", "text", "subtext"];
   var TAILWIND_SHADES = Object.freeze([100, 200, 300, 400, 500, 600, 700, 800, 900]);
   var TAILWIND_FAMILIES = Object.freeze({
     Slate: { 100: "#f1f5f9", 200: "#e2e8f0", 300: "#cbd5e1", 400: "#94a3b8", 500: "#64748b", 600: "#475569", 700: "#334155", 800: "#1e293b", 900: "#0f172a" },
@@ -2243,7 +2246,16 @@ var plugins = (() => {
       { val: "icon", label: "Icon" },
       { val: "title", label: "Title" },
       { val: "slash", label: "Slash" },
-      { val: "views", label: "Views" }
+      { val: "views", label: "Views" },
+      { val: "bg", label: "Background" }
+    ]
+  );
+  var MENU_TARGET_OPTIONS = (
+    /** @type {const} */
+    [
+      { val: "icon", label: "Icon" },
+      { val: "text", label: "Text" },
+      { val: "subtext", label: "Subtext" }
     ]
   );
   function isApplyTo(v) {
@@ -2268,6 +2280,13 @@ var plugins = (() => {
     return Array.from(new Set(values.filter((v) => valid.has(v))));
   }
   __name(normalizeBreadcrumbTargets, "normalizeBreadcrumbTargets");
+  function normalizeMenuTargets(values) {
+    if (!Array.isArray(values)) return [];
+    const valid = new Set(MENU_TARGET_OPTIONS.map((o) => o.val));
+    const migrated = values.map((v) => v === "name" ? "subtext" : v);
+    return Array.from(new Set(migrated.filter((v) => valid.has(v))));
+  }
+  __name(normalizeMenuTargets, "normalizeMenuTargets");
   function normalizeTailwindShade(v) {
     const n = Number(v);
     return TAILWIND_SHADES.includes(n) ? n : 500;
@@ -2351,6 +2370,8 @@ var plugins = (() => {
       defaultApplyTo: APPLY_TO_DEFAULT,
       defaultSidebarTargets: [...SIDEBAR_TARGET_DEFAULT],
       defaultBreadcrumbTargets: [...BREADCRUMB_TARGET_DEFAULT],
+      defaultMenuTargets: [...MENU_TARGET_DEFAULT],
+      defaultMenuNewTargets: [...MENU_NEW_TARGET_DEFAULT],
       titleVariation: { hueShift: 0, satDelta: 0, lightDelta: 0 },
       pagesVariation: { hueShift: 0, satDelta: 0, lightDelta: 0 },
       viewsVariation: { hueShift: 0, satDelta: 0, lightDelta: 0 },
@@ -2580,6 +2601,7 @@ var plugins = (() => {
       this._annotating = true;
       try {
         this._annotateSidebar();
+        this._annotateAutocomplete();
       } finally {
         this._annotating = false;
       }
@@ -2594,8 +2616,8 @@ var plugins = (() => {
       const inScope = /* @__PURE__ */ __name((node) => {
         const elt = node instanceof HTMLElement ? node : node.parentElement;
         if (!elt) return false;
-        if (elt.closest(`[${SIDEBAR_ROOT_ATTR}], .sidebar, .panel-menubar`)) return true;
-        return !!(elt.querySelector && elt.querySelector(".sidebar-item-collection, .panel-menubar-buttons"));
+        if (elt.closest(`[${SIDEBAR_ROOT_ATTR}], .sidebar, .panel-menubar, .autocomplete`)) return true;
+        return !!(elt.querySelector && elt.querySelector(".sidebar-item-collection, .panel-menubar-buttons, .autocomplete--option"));
       }, "inScope");
       for (const m of mutations) {
         if (inScope(m.target)) return true;
@@ -2716,6 +2738,49 @@ var plugins = (() => {
         }
         if (this._panelEl && prevKey !== nextKey) this._renderPanel();
       }).catch(() => retry());
+    }
+    /**
+     * Tag `@`-menu rows that point at a collection, so the per-collection CSS can
+     * tint them.
+     *
+     * A result row carries its collection as plain text in a trailing
+     * `.autocomplete--kbd` span (e.g. "Notes", "Recall.ai Meetings"). That same
+     * span is ALSO used for genuine keyboard hints — "1." on Numbered List, ">"
+     * on Line Quote — so there is no class that distinguishes the two. The
+     * name→guid lookup IS the disambiguator: a hint like "1." never matches a
+     * collection name, so it simply falls through untagged.
+     *
+     * Consequence worth knowing: collections whose names collide (this workspace
+     * has two named with a zero-width space) are ambiguous by name and are left
+     * untagged rather than tinted as the wrong one.
+     */
+    _annotateAutocomplete() {
+      const rows = document.querySelectorAll(".autocomplete--option");
+      if (!rows.length) return;
+      const byName = this._collections.length ? new Map(this._collections.map((c) => [String(c.getName && c.getName()).trim().toLowerCase(), c.getGuid()])) : null;
+      const nameCount = /* @__PURE__ */ new Map();
+      if (byName) {
+        for (const c of this._collections) {
+          const n = String(c.getName && c.getName()).trim().toLowerCase();
+          nameCount.set(n, (nameCount.get(n) || 0) + 1);
+        }
+      }
+      rows.forEach((row) => {
+        if (!(row instanceof HTMLElement)) return;
+        row.removeAttribute(COLL_GUID_ATTR);
+        row.removeAttribute(MENU_NEW_ATTR);
+        if (!byName) return;
+        const kbd = row.querySelector(".autocomplete--option-right .autocomplete--kbd");
+        if (!kbd) return;
+        const name = String(kbd.textContent || "").trim().toLowerCase();
+        if (!name || (nameCount.get(name) || 0) !== 1) return;
+        const guid = byName.get(name);
+        if (!guid) return;
+        row.setAttribute(COLL_GUID_ATTR, guid);
+        const iconSlot = row.querySelector(".autocomplete--option-icon");
+        const isCreate = !!iconSlot && Array.from(iconSlot.children).some((child) => !child.classList.contains("ti"));
+        if (isCreate) row.setAttribute(MENU_NEW_ATTR, "1");
+      });
     }
     _annotateBreadcrumbs() {
       if (!this._collections.length) return;
@@ -2851,6 +2916,7 @@ var plugins = (() => {
           defaultApplyTo: APPLY_TO_DEFAULT,
           defaultSidebarTargets: [...SIDEBAR_TARGET_DEFAULT],
           defaultBreadcrumbTargets: [...BREADCRUMB_TARGET_DEFAULT],
+          defaultMenuTargets: [...MENU_TARGET_DEFAULT],
           titleVariation: { hueShift: 0, satDelta: 0, lightDelta: 0 },
           pagesVariation: { hueShift: 0, satDelta: 0, lightDelta: 0 },
           viewsVariation: { hueShift: 0, satDelta: 0, lightDelta: 0 },
@@ -2873,10 +2939,24 @@ var plugins = (() => {
             pagesVariation = old;
           } else pagesVariation = old;
         }
+        let breadcrumbTargets = normalizeBreadcrumbTargets(raw.defaultBreadcrumbTargets);
+        const bgTargetMigrated = raw.bgTargetMigrated === true;
+        if (!bgTargetMigrated && breadcrumbTargets.length > 0 && !breadcrumbTargets.includes("bg")) {
+          breadcrumbTargets = [...breadcrumbTargets, "bg"];
+        }
         return {
           defaultApplyTo: isApplyTo(raw.defaultApplyTo) ? raw.defaultApplyTo : APPLY_TO_DEFAULT,
           defaultSidebarTargets: Array.isArray(raw.defaultSidebarTargets) ? normalizeSidebarTargets(raw.defaultSidebarTargets) : applyToToSidebarTargets(isApplyTo(raw.defaultApplyTo) ? raw.defaultApplyTo : APPLY_TO_DEFAULT),
-          defaultBreadcrumbTargets: normalizeBreadcrumbTargets(raw.defaultBreadcrumbTargets),
+          defaultBreadcrumbTargets: breadcrumbTargets,
+          bgTargetMigrated: true,
+          // The `@`-menu row was originally icon + name; `text` (the option
+          // label) only became addressable when the row was split into
+          // text/subtext. Configs written before that split never had the
+          // chance to opt into `text`, so seed them with the full default
+          // once instead of leaving the label stubbornly untinted.
+          defaultMenuTargets: Array.isArray(raw.defaultMenuTargets) && raw.menuSplitMigrated === true ? normalizeMenuTargets(raw.defaultMenuTargets) : [...MENU_TARGET_DEFAULT],
+          menuSplitMigrated: true,
+          defaultMenuNewTargets: Array.isArray(raw.defaultMenuNewTargets) ? normalizeMenuTargets(raw.defaultMenuNewTargets) : [...MENU_NEW_TARGET_DEFAULT],
           titleVariation,
           pagesVariation,
           viewsVariation,
@@ -3072,6 +3152,34 @@ var plugins = (() => {
       const next = current.includes(target) ? current.filter((t) => t !== target) : [...current, target];
       this._setGlobalSidebarTargets(next);
     }
+    /** @param {MenuTarget[]} targets */
+    _setGlobalMenuTargets(targets) {
+      this._settings = { ...this._settings, defaultMenuTargets: targets };
+      this._saveSettings();
+      this._writeTintStyle();
+      this._annotateAutocomplete();
+      this._renderPanel();
+    }
+    /** @param {MenuTarget} target */
+    _toggleGlobalMenuTarget(target) {
+      const current = this._settings.defaultMenuTargets;
+      const next = current.includes(target) ? current.filter((t) => t !== target) : [...current, target];
+      this._setGlobalMenuTargets(next);
+    }
+    /** @param {MenuTarget[]} targets */
+    _setGlobalMenuNewTargets(targets) {
+      this._settings = { ...this._settings, defaultMenuNewTargets: targets };
+      this._saveSettings();
+      this._writeTintStyle();
+      this._annotateAutocomplete();
+      this._renderPanel();
+    }
+    /** @param {MenuTarget} target */
+    _toggleGlobalMenuNewTarget(target) {
+      const current = this._settings.defaultMenuNewTargets;
+      const next = current.includes(target) ? current.filter((t) => t !== target) : [...current, target];
+      this._setGlobalMenuNewTargets(next);
+    }
     /** @param {BreadcrumbTarget} target */
     _toggleGlobalBreadcrumbTarget(target) {
       const current = this._settings.defaultBreadcrumbTargets;
@@ -3114,6 +3222,8 @@ var plugins = (() => {
         const { color: colorRaw, sidebarTargets, breadcrumbTargets } = this._getResolved(guid);
         if (!colorRaw) continue;
         const color = this._resolveColorValue(colorRaw);
+        const menuTargets = this._settings.defaultMenuTargets || [];
+        const menuNewTargets = this._settings.defaultMenuNewTargets || [];
         const fromAnim = !!(this._animColors && Object.prototype.hasOwnProperty.call(this._animColors, guid));
         const isRamp = fromAnim || typeof colorRaw === "string" && colorRaw.startsWith("twflip:");
         const rampSafe = /* @__PURE__ */ __name((v) => isRamp && v && v.mode === "tailwind" ? { ...v, mode: void 0 } : v, "rampSafe");
@@ -3163,6 +3273,14 @@ var plugins = (() => {
             stateForeground.push({ priority: 1, sel: highlightedInColl, fg: pageFg });
           }
         }
+        if (breadcrumbTargets.includes("bg")) {
+          const chip = `color-mix(in srgb, ${color} 14%, var(--color-bg-700, #0f1318))`;
+          rules.push(
+            `${crumbGroup} { background-color: ${chip} !important; }`,
+            `${crumbGroup} > button:not(:hover) { background-color: ${chip} !important; }`,
+            `${crumbCollection} { background-color: transparent !important; }`
+          );
+        }
         if (breadcrumbTargets.includes("title")) {
           rules.push(`${crumbCollection} { color: ${color} !important; }`);
           if (!breadcrumbTargets.includes("icon")) {
@@ -3183,6 +3301,24 @@ var plugins = (() => {
         }
         if (breadcrumbTargets.includes("slash")) rules.push(`${crumbCollection} .id--sep .hover-switch-off { color: ${color} !important; }`);
         if (breadcrumbTargets.includes("views")) rules.push(`${crumbGroup} .view-button { color: ${viewsColor} !important; }`);
+        const rowBase = `.autocomplete .autocomplete--option[${COLL_GUID_ATTR}="${safeGuid}"]`;
+        const menuRules = /* @__PURE__ */ __name((targets, row) => {
+          if (targets.includes("icon")) {
+            rules.push(`${row} .autocomplete--option-icon .ti { color: ${color} !important; }`);
+          }
+          if (targets.includes("text")) {
+            rules.push(
+              `${row} .autocomplete--option-label,`,
+              `${row} .autocomplete--option-label *,`,
+              `${row} .autocomplete--option-icon > span:not(.ti) { color: ${color} !important; }`
+            );
+          }
+          if (targets.includes("subtext")) {
+            rules.push(`${row} .autocomplete--option-right .autocomplete--kbd { color: ${color} !important; }`);
+          }
+        }, "menuRules");
+        if (menuTargets.length > 0) menuRules(menuTargets, `${rowBase}:not([${MENU_NEW_ATTR}])`);
+        if (menuNewTargets.length > 0) menuRules(menuNewTargets, `${rowBase}[${MENU_NEW_ATTR}]`);
       }
       stateForeground.sort((a, b) => a.priority - b.priority);
       for (const { sel, fg } of stateForeground) appendStateForeground(rules, sel, fg);
@@ -3315,6 +3451,26 @@ var plugins = (() => {
         );
         if (this._globalTintOpen.viewsVariation) breadcrumbsGroup.appendChild(this._renderTintInBody("viewsVariation"));
         body.appendChild(breadcrumbsGroup);
+        body.appendChild(this._renderTargetGroup(
+          "@ Menu existing collection items",
+          MENU_TARGET_OPTIONS,
+          this._settings.defaultMenuTargets,
+          (target) => this._toggleGlobalMenuTarget(
+            /** @type {MenuTarget} */
+            target
+          ),
+          () => this._setGlobalMenuTargets([])
+        ));
+        body.appendChild(this._renderTargetGroup(
+          "@ Menu new item actions",
+          MENU_TARGET_OPTIONS,
+          this._settings.defaultMenuNewTargets,
+          (target) => this._toggleGlobalMenuNewTarget(
+            /** @type {MenuTarget} */
+            target
+          ),
+          () => this._setGlobalMenuNewTargets([])
+        ));
         return body;
       });
     }
