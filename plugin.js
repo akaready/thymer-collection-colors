@@ -2309,8 +2309,9 @@ var plugins = (() => {
   __name(syncPluginVersionOnLoad, "syncPluginVersionOnLoad");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.2.3";
+  var PLUGIN_VERSION = "1.2.4";
   var ROOT_CLASS = "plg-collection-colors";
+  var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
   var SIDEBAR_SEPARATOR_PLUGIN_KEY = "sidebarSeparators";
   var SIDEBAR_SEPARATOR_PLUGIN_KEY_LEGACY = "sidebarSeperators";
@@ -3018,6 +3019,7 @@ var plugins = (() => {
     _saveColors() {
       localStorage.setItem(this._colorsKey(), JSON.stringify(this._colors));
       this._configDirty = true;
+      this._broadcastColorsChanged();
     }
     /**
      * Local-only persistence for live color edits — writes the localStorage
@@ -3027,6 +3029,23 @@ var plugins = (() => {
     _saveColorsLocal() {
       localStorage.setItem(this._colorsKey(), JSON.stringify(this._colors));
       this._configDirty = true;
+      this._broadcastColorsChanged();
+    }
+    /**
+     * Tell same-page consumers (Collection Icons) that the color map changed.
+     *
+     * They can't learn it any other way: the `storage` event never fires in the tab that wrote
+     * the value, and our synced saveConfiguration is deliberately deferred to panel close (it
+     * forces a plugin reload that resets editor scroll). Without this, a consumer has to poll.
+     * Fire-and-forget — nobody listening is the normal case.
+     */
+    _broadcastColorsChanged() {
+      try {
+        window.dispatchEvent(new CustomEvent(COLORS_CHANGED_EVENT, {
+          detail: { key: this._colorsKey() }
+        }));
+      } catch {
+      }
     }
     /**
      * Close out a live color-picker session. Edits are already in localStorage
