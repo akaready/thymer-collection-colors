@@ -282,11 +282,10 @@ var plugins = (() => {
   margin: 0 0 var(--tps-space-3, 12px);
 }
 
-.tps-plugin-header-version {
+.tps-panel .tps-plugin-header-version {
   display: inline-flex;
   flex: 0 0 auto;
-  align-items: baseline;
-  align-self: baseline;
+  align-items: center;
   font-size: 11px;
   line-height: inherit;
   font-weight: var(--tps-fw-medium, 500);
@@ -379,10 +378,14 @@ var plugins = (() => {
   opacity: 1;
 }
 
-.tps-plugin-header-attr {
+/* Scoped .tps-panel on purpose: every plugin injects its own copy of this
+   file, and older copies baseline-align this row (plus translateY icon
+   shims). Higher specificity here makes the newest layout win the cascade
+   war regardless of plugin load order. */
+.tps-panel .tps-plugin-header-attr {
   position: relative;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 0;
   width: 100%;
@@ -410,8 +413,8 @@ var plugins = (() => {
   border-left: 1px solid var(--tps-bg-hover);
 }
 
-.tps-plugin-header-icon,
-.tps-plugin-header-attr .ti {
+.tps-panel .tps-plugin-header-icon,
+.tps-panel .tps-plugin-header-attr .ti {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -421,7 +424,6 @@ var plugins = (() => {
   font-size: 12px;
   line-height: 1;
   color: var(--tps-text-muted);
-  transform: translateY(2px);
   margin-right: var(--tps-space-1, 4px);
 }
 
@@ -581,14 +583,11 @@ var plugins = (() => {
   align-items: center;
   gap: var(--tps-space-2, 8px);
   margin-left: auto;
-  align-self: center;
   padding-left: var(--tps-space-3, 12px);
 }
 
-/* In-row placement (right of the version link): opt out of the attr row's
-   baseline alignment so the square button centers on the text line. */
-.tps-plugin-header-attr > .tps-plugin-header-bug {
-  align-self: center;
+/* In-row placement (right of the version link). */
+.tps-panel .tps-plugin-header-attr > .tps-plugin-header-bug {
   margin-left: var(--tps-space-2, 8px);
 }
 
@@ -610,7 +609,7 @@ var plugins = (() => {
 }
 
 /* Undo the attr row's generic .ti treatment (translateY + margin) inside the button. */
-.tps-plugin-header-bug .ti {
+.tps-panel .tps-plugin-header-bug .ti {
   width: 14px;
   height: 14px;
   font-size: 14px;
@@ -3289,7 +3288,7 @@ ${report}
   __name(setPluginDisabled, "setPluginDisabled");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.3.4";
+  var PLUGIN_VERSION = "1.3.5";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
