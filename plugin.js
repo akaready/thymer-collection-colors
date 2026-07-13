@@ -585,6 +585,13 @@ var plugins = (() => {
   padding-left: var(--tps-space-3, 12px);
 }
 
+/* In-row placement (right of the version link): opt out of the attr row's
+   baseline alignment so the square button centers on the text line. */
+.tps-plugin-header-attr > .tps-plugin-header-bug {
+  align-self: center;
+  margin-left: var(--tps-space-2, 8px);
+}
+
 .tps-plugin-header-bug {
   display: inline-flex;
   align-items: center;
@@ -2193,11 +2200,14 @@ ${report}
           h("span", { class: "tps-plugin-header-icon tps-plugin-header-iconify tps-plugin-header-iconify-github", "aria-hidden": "true" }),
           h("a", { class: "tps-plugin-header-link tps-plugin-header-link--muted tps-plugin-header-version", href: repository, target: "_blank", rel: "noopener noreferrer" }, `v${version}`)
         ) : null,
-        fb || killSwitch || scope ? h(
+        // Bug report sits with the attribution links (right of the version);
+        // the far-right corner is reserved for state toggles (scope pill,
+        // kill switch).
+        fb ? renderFeedbackButton(fb) : null,
+        killSwitch || scope ? h(
           "span",
           { class: "tps-plugin-header-controls" },
           scope ? scopeCluster(scope) : null,
-          fb ? renderFeedbackButton(fb) : null,
           killSwitch ? renderKillSwitch(killSwitch) : null
         ) : null
       ),
@@ -2216,9 +2226,10 @@ ${report}
     const pill = h(
       "span",
       {
-        class: "tps-scope-pill",
+        class: "tps-scope-pill tooltip",
         "data-diverged": String(!!scope.diverged),
-        title: scope.diverged ? "These settings currently apply to this device only" : "Settings are synced \u2014 changes here start as this-device-only"
+        "data-tooltip": scope.diverged ? "These settings currently apply to this device only" : "Settings are synced \u2014 changes here start as this-device-only",
+        "data-tooltip-dir": "top"
       },
       h("span", { class: "tps-scope-dot", "aria-hidden": "true" }),
       scope.diverged ? "This device" : "All devices"
@@ -2228,8 +2239,9 @@ ${report}
     }
     const push = h("button", {
       type: "button",
-      class: "tps-scope-btn tps-scope-btn--push",
-      title: "Apply these settings to all devices",
+      class: "tps-scope-btn tps-scope-btn--push tooltip",
+      "data-tooltip": "Apply these settings to all devices",
+      "data-tooltip-dir": "top",
       "aria-label": "Apply these settings to all devices",
       onClick: /* @__PURE__ */ __name((e) => {
         const btn = (
@@ -2248,8 +2260,9 @@ ${report}
     let disarmTimer = 0;
     const discard = h("button", {
       type: "button",
-      class: "tps-scope-btn tps-scope-btn--discard",
-      title: "Discard device changes \u2014 revert to synced settings",
+      class: "tps-scope-btn tps-scope-btn--discard tooltip",
+      "data-tooltip": "Discard device changes \u2014 revert to synced settings",
+      "data-tooltip-dir": "top",
       "aria-label": "Discard device changes",
       onClick: /* @__PURE__ */ __name((e) => {
         const btn = (
@@ -2258,11 +2271,11 @@ ${report}
         );
         if (btn.getAttribute("data-armed") !== "true") {
           btn.setAttribute("data-armed", "true");
-          btn.title = "Tap again to discard device changes";
+          btn.setAttribute("data-tooltip", "Tap again to discard device changes");
           clearTimeout(disarmTimer);
           disarmTimer = window.setTimeout(() => {
             btn.removeAttribute("data-armed");
-            btn.title = "Discard device changes \u2014 revert to synced settings";
+            btn.setAttribute("data-tooltip", "Discard device changes \u2014 revert to synced settings");
           }, 3e3);
           return;
         }
