@@ -1873,7 +1873,6 @@ ${report}
     (opener ? opener.closest(".tps-panel") : null);
     if (!panelHost || !repository) return;
     if (panelHost.querySelector(".tps-feedback-overlay")) return;
-    const repoLabel = repository.replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/\/+$/, "");
     const reportPromise = collectSystemReport({ pluginName, pluginVersion, disabled, data });
     const discordInput = el("input", { class: "tps-feedback-input", type: "text", placeholder: "e.g. akaready", autocomplete: "off", spellcheck: "false" });
     const emailInput = el("input", { class: "tps-feedback-input", type: "email", placeholder: "e.g. you@example.com", autocomplete: "off", spellcheck: "false" });
@@ -1934,12 +1933,13 @@ ${report}
           el("i", { class: "ti ti-x", "aria-hidden": "true" })
         )
       ),
+      // Fixed short copy — no variable repo name, so each line stays on one line.
       el(
         "p",
         { class: "tps-feedback-hint" },
-        `Opens a prefilled GitHub issue on ${repoLabel}.`,
+        "Opens a prefilled GitHub issue on the repo.",
         el("br"),
-        "Please paste screenshots into the GitHub form after it opens."
+        "Please add relevant screenshots to the GitHub issue."
       ),
       fieldRow("Discord username (optional)", discordInput),
       fieldRow("Email (optional)", emailInput),
@@ -3099,7 +3099,7 @@ ${report}
   __name(setPluginDisabled, "setPluginDisabled");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.3.2";
+  var PLUGIN_VERSION = "1.3.3";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
