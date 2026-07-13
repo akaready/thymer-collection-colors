@@ -2411,7 +2411,7 @@ ${report}
     return wrap;
   }
   __name(renderPluginHeaderHelper, "renderPluginHeaderHelper");
-  function pluginHeaderFromConfig(conf, { version, helper, helperOpen, helperDefaultOpen, onHelperToggle, killSwitch, feedback } = {}) {
+  function pluginHeaderFromConfig(conf, { version, helper, helperOpen, helperDefaultOpen, onHelperToggle, killSwitch, feedback, scope } = {}) {
     const resolvedHelper = helper ?? conf.instructions;
     return pluginHeader({
       title: conf.name || "",
@@ -2427,7 +2427,8 @@ ${report}
       repository: conf.repository,
       coffee: conf.coffee,
       killSwitch,
-      feedback
+      feedback,
+      scope
     });
   }
   __name(pluginHeaderFromConfig, "pluginHeaderFromConfig");
@@ -3312,8 +3313,215 @@ ${report}
   }
   __name(setPluginDisabled, "setPluginDisabled");
 
+  // ../../shared/plugin-settings.js
+  function createSettingsStore(plugin, {
+    slug,
+    key = "settings",
+    version,
+    normalize = /* @__PURE__ */ __name((raw) => raw && typeof raw === "object" ? raw : {}, "normalize"),
+    scopeKey = null,
+    readSynced = null,
+    pickSynced = null
+  }) {
+    const readSyncedBlob = readSynced || ((custom) => custom?.[key]);
+    const pickSyncedSubset = pickSynced || ((s) => s);
+    let current = {};
+    let diverged = false;
+    let pushInFlight = false;
+    const workspaceGuid = /* @__PURE__ */ __name(() => {
+      try {
+        const guid = plugin.getWorkspaceGuid?.();
+        if (guid) return guid;
+      } catch {
+      }
+      return "default";
+    }, "workspaceGuid");
+    const storageKey = /* @__PURE__ */ __name(() => {
+      const scope = scopeKey ? `/${scopeKey()}` : "";
+      return `${slug}/${workspaceGuid()}${scope}/settings`;
+    }, "storageKey");
+    const readCustom = /* @__PURE__ */ __name(() => {
+      try {
+        const conf = plugin.getConfiguration?.();
+        const custom = conf && conf.custom;
+        return custom && typeof custom === "object" ? (
+          /** @type {Record<string, unknown>} */
+          custom
+        ) : {};
+      } catch {
+        return {};
+      }
+    }, "readCustom");
+    const readLocalRaw = /* @__PURE__ */ __name(() => {
+      try {
+        const raw = localStorage.getItem(storageKey());
+        if (raw === null) return null;
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch {
+        return null;
+      }
+    }, "readLocalRaw");
+    const normalizedStringify = /* @__PURE__ */ __name((raw) => JSON.stringify(normalize(raw)), "normalizedStringify");
+    const store = {
+      /** Read-only: never writes either store. */
+      load() {
+        const local = readLocalRaw();
+        if (local !== null) {
+          current = normalize(local);
+          diverged = true;
+        } else {
+          current = normalize(readSyncedBlob(readCustom()) || {});
+          diverged = false;
+        }
+        return { settings: current, diverged };
+      },
+      get() {
+        return current;
+      },
+      isDiverged() {
+        return diverged;
+      },
+      /**
+       * Every edit is device-local. First edit snapshots the FULL settings
+       * (inherited values of untouched keys survive). localStorage throwing
+       * (private mode) leaves the edit in memory for the session — still
+       * reported diverged so the pill/push UI works, and push still syncs.
+       */
+      update(patch) {
+        current = normalize({ ...current, ...patch });
+        if (normalizedStringify(readSyncedBlob(readCustom())) === JSON.stringify(current)) {
+          try {
+            localStorage.removeItem(storageKey());
+          } catch {
+          }
+          diverged = false;
+          return { settings: current, diverged };
+        }
+        diverged = true;
+        try {
+          localStorage.setItem(storageKey(), JSON.stringify(current));
+        } catch {
+        }
+        return { settings: current, diverged };
+      },
+      /**
+       * The explicit ↑ "Apply to all devices": ONE saveConfiguration (which
+       * reloads the plugin), then the local blob is cleared so this device
+       * goes back to following the synced config. Resolves true when the
+       * settings are known to be in synced config (pushed or already equal).
+       */
+      async pushToAll() {
+        if (pushInFlight) return false;
+        pushInFlight = true;
+        try {
+          const api = await resolveConfigApi(plugin);
+          if (!api || typeof api.saveConfiguration !== "function") return false;
+          let conf = {};
+          try {
+            conf = api.getConfiguration?.() || plugin.getConfiguration?.() || {};
+          } catch {
+            return false;
+          }
+          if (typeof conf.name !== "string" || !conf.name.trim()) return false;
+          const custom = conf.custom && typeof conf.custom === "object" ? conf.custom : {};
+          const subset = pickSyncedSubset(normalize(current));
+          try {
+            localStorage.removeItem(storageKey());
+          } catch {
+          }
+          diverged = false;
+          try {
+            if (normalizedStringify(readSyncedBlob(
+              /** @type {any} */
+              custom
+            )) !== normalizedStringify(subset)) {
+              await api.saveConfiguration(configWithPluginVersion(conf, { [key]: subset }, version));
+            }
+          } catch (err) {
+            try {
+              localStorage.setItem(storageKey(), JSON.stringify(current));
+            } catch {
+            }
+            diverged = true;
+            throw err;
+          }
+          return true;
+        } catch {
+          return false;
+        } finally {
+          pushInFlight = false;
+        }
+      },
+      /** The ↺ "Discard device changes": drop local, re-adopt synced. */
+      discardLocal() {
+        try {
+          localStorage.removeItem(storageKey());
+        } catch {
+        }
+        current = normalize(readSyncedBlob(readCustom()) || {});
+        diverged = false;
+        return current;
+      },
+      /**
+       * For folding into `setPluginDisabled(plugin, off, version, customPatch)`
+       * so a kill-switch toggle carries staged device settings in the SAME
+       * save (one reload, no race — CLAUDE.md rule). Call markFlushed() after
+       * that save succeeds if the fold should count as a push.
+       */
+      pendingCustomPatch() {
+        return diverged ? { [key]: pickSyncedSubset(normalize(current)) } : {};
+      },
+      markFlushed() {
+        try {
+          localStorage.removeItem(storageKey());
+        } catch {
+        }
+        diverged = false;
+      },
+      /**
+       * Live-follow for non-diverged devices: when another device pushes,
+       * `global-plugin.updated` fires here; re-read the synced blob and, if
+       * it changed semantically, hand the fresh settings to the plugin's
+       * central apply (which each plugin already guards with its kill
+       * switch). Returns a detach function for onUnload.
+       */
+      attachLifecycle({ onRemoteChange } = {}) {
+        const handlerIds = [];
+        try {
+          const id = plugin.events?.on?.("global-plugin.updated", (event) => {
+            try {
+              if (diverged) return;
+              if (event?.source?.isLocal) return;
+              const guid = plugin.getGuid?.();
+              const eventGuid = event?.pluginGuid || event?.guid || event?.rootId || null;
+              if (eventGuid && guid && eventGuid !== guid) return;
+              const next = normalize(readSyncedBlob(readCustom()) || {});
+              if (JSON.stringify(next) === JSON.stringify(current)) return;
+              current = next;
+              onRemoteChange?.(current);
+            } catch {
+            }
+          });
+          if (id) handlerIds.push(id);
+        } catch {
+        }
+        return () => {
+          for (const id of handlerIds) {
+            try {
+              plugin.events?.off?.(id);
+            } catch {
+            }
+          }
+        };
+      }
+    };
+    return store;
+  }
+  __name(createSettingsStore, "createSettingsStore");
+
   // plugin.js
-  var PLUGIN_VERSION = "1.3.6";
+  var PLUGIN_VERSION = "1.4.0";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
@@ -3588,8 +3796,16 @@ ${report}
     _configSaveTimer = null;
     _configSaveInFlight = false;
     _configSaveQueued = false;
-    /** true when edits await a synced saveConfiguration (flushed on panel close) */
-    _configDirty = false;
+    /** true when COLOR edits await a synced saveConfiguration (flushed on panel close) */
+    _colorsDirty = false;
+    /** Per-device SETTINGS store (shared/plugin-settings.js). Colors never live here. */
+    /** @type {ReturnType<typeof createSettingsStore>} */
+    _settingsStore = (
+      /** @type {any} */
+      null
+    );
+    /** @type {(() => void) | null} */
+    _detachSettingsLifecycle = null;
     /** @type {string | null} panel.closed event handler id */
     _panelClosedHandler = null;
     /** @type {string[]} collection.* event handler ids (refetch triggers) */
@@ -3601,10 +3817,17 @@ ${report}
       this._disabled = readKillSwitch(this);
       installInstantTooltip();
       this._colors = this._loadColors();
-      this._settings = this._loadSettings();
-      if (this._hasLocalObject(this._colorsKey()) || this._hasLocalObject(this._settingsKey())) {
-        this._configDirty = true;
-        this._flushConfig();
+      this._settingsStore = createSettingsStore(this, {
+        slug: "collection-colors",
+        key: "settings",
+        version: PLUGIN_VERSION,
+        normalize: /* @__PURE__ */ __name((raw) => this._normalizeSettings(raw), "normalize")
+      });
+      this._settings = /** @type {GlobalSettings} */
+      this._settingsStore.load().settings;
+      if (this._hasLocalObject(this._colorsKey())) {
+        this._colorsDirty = true;
+        this._flushColors();
       }
       this._collections = [];
       this._tintGuid = null;
@@ -3622,7 +3845,26 @@ ${report}
         this._panelEl = panelEl;
         this._renderPanel();
       });
-      this._panelClosedHandler = this.events.on("panel.closed", () => this._flushConfig());
+      this._panelClosedHandler = this.events.on("panel.closed", () => this._flushColors());
+      this._detachSettingsLifecycle = this._settingsStore.attachLifecycle({
+        onRemoteChange: /* @__PURE__ */ __name((settings) => {
+          const wasAnimate = !!this._settings.animate;
+          this._settings = /** @type {GlobalSettings} */
+          settings;
+          if (!this._disabled) {
+            this._writeTintStyle();
+            this._annotateAutocomplete();
+            if (this._settings.animate && !wasAnimate && !this._animRunning) {
+              this._animRunning = true;
+              this._startAnimation();
+            } else if (!this._settings.animate && wasAnimate && this._animRunning) {
+              this._animRunning = false;
+              this._stopAnimation();
+            }
+          }
+          void this._renderPanel();
+        }, "onRemoteChange")
+      });
       this.ui.addCommandPaletteCommand({
         label: "Plugin: Collection Colors",
         icon: "palette",
@@ -3692,6 +3934,11 @@ ${report}
         clearTimeout(this._configSaveTimer);
         this._configSaveTimer = null;
       }
+      try {
+        this._detachSettingsLifecycle?.();
+      } catch {
+      }
+      this._detachSettingsLifecycle = null;
       if (this._panelClosedHandler) {
         this.events.off(this._panelClosedHandler);
         this._panelClosedHandler = null;
@@ -3963,11 +4210,10 @@ ${report}
       if (panel) panel.navigateToCustomType(PANEL_TYPE);
     }
     // ─── Storage ────────────────────────────────────────────────────────────
+    // (The SETTINGS localStorage key — collection-colors/<ws>/settings — is
+    // owned by the shared settings store now; nothing here reads it directly.)
     _colorsKey() {
       return `collection-colors/${this.getWorkspaceGuid()}/colors`;
-    }
-    _settingsKey() {
-      return `collection-colors/${this.getWorkspaceGuid()}/settings`;
     }
     /** @param {string} key @returns {boolean} */
     _hasLocalObject(key) {
@@ -4033,7 +4279,7 @@ ${report}
     }
     _saveColors() {
       localStorage.setItem(this._colorsKey(), JSON.stringify(this._colors));
-      this._configDirty = true;
+      this._colorsDirty = true;
       this._broadcastColorsChanged();
     }
     /**
@@ -4043,7 +4289,7 @@ ${report}
      */
     _saveColorsLocal() {
       localStorage.setItem(this._colorsKey(), JSON.stringify(this._colors));
-      this._configDirty = true;
+      this._colorsDirty = true;
       this._broadcastColorsChanged();
     }
     /**
@@ -4071,37 +4317,43 @@ ${report}
       this._colorEditsPending = false;
     }
     /**
-     * Push pending edits to the synced config. This calls saveConfiguration,
-     * which reloads the plugin, so it runs only when the user is done editing
-     * (panel closed / plugin load) — never mid-interaction.
+     * Push pending COLOR edits to the synced config. This calls
+     * saveConfiguration, which reloads the plugin, so it runs only when the
+     * user is done editing (panel closed / plugin load) — never mid-interaction.
      */
-    _flushConfig() {
-      if (!this._configDirty) return;
-      this._configDirty = false;
+    _flushColors() {
+      if (!this._colorsDirty) return;
+      this._colorsDirty = false;
       void this._saveCustomConfigNow();
     }
-    /** @returns {GlobalSettings} */
-    _loadSettings() {
-      return this._normalizeSettings({
-        ...this._customConfig().settings || {},
-        ...this._loadLocalObject(this._settingsKey())
-      });
-    }
-    /** @param {any} raw @returns {GlobalSettings} */
+    /**
+     * Settings normalizer — also the shared settings store's `normalize`, so it
+     * MUST stay idempotent and emit a FIXED key set/order/types: both sides of
+     * every store convergence compare run through it.
+     * @param {any} raw @returns {GlobalSettings}
+     */
     _normalizeSettings(raw) {
       const fallback = (
         /** @type {GlobalSettings} */
         {
           defaultApplyTo: APPLY_TO_DEFAULT,
           defaultSidebarTargets: [...SIDEBAR_TARGET_DEFAULT],
-          defaultBreadcrumbTargets: [...BREADCRUMB_TARGET_DEFAULT],
+          defaultBreadcrumbTargets: [],
+          bgTargetMigrated: true,
           defaultMenuTargets: [...MENU_TARGET_DEFAULT],
-          titleVariation: { hueShift: 0, satDelta: 0, lightDelta: 0 },
-          pagesVariation: { hueShift: 0, satDelta: 0, lightDelta: 0 },
-          viewsVariation: { hueShift: 0, satDelta: 0, lightDelta: 0 },
+          menuSplitMigrated: true,
+          defaultMenuNewTargets: [...MENU_NEW_TARGET_DEFAULT],
+          titleVariation: { hueShift: 0, satDelta: 0, lightDelta: 0, tailwindShade: 500 },
+          pagesVariation: { hueShift: 0, satDelta: 0, lightDelta: 0, tailwindShade: 500 },
+          viewsVariation: { hueShift: 0, satDelta: 0, lightDelta: 0, tailwindShade: 500 },
           highlightedItemMode: "auto",
           highlightedTintShade: 500,
-          highlightedTintInvert: false
+          highlightedTintInvert: false,
+          customSwatches: [],
+          animate: false,
+          animateSpeed: 0.06,
+          animatePalette: "rainbow",
+          reverse: false
         }
       );
       try {
@@ -4162,9 +4414,18 @@ ${report}
         tailwindShade: normalizeTailwindShade(src && src.tailwindShade)
       };
     }
-    _saveSettings() {
-      localStorage.setItem(this._settingsKey(), JSON.stringify(this._settings));
-      this._configDirty = true;
+    /**
+     * Route a SETTINGS edit through the per-device store: snapshot the full
+     * in-memory settings (live slider edits mutate this._settings without the
+     * store) plus the patch, stage device-local, and refresh the scope pill.
+     * Never re-renders and never calls saveConfiguration — pushing to all
+     * devices is the scope pill's explicit job.
+     * @param {Partial<GlobalSettings>} patch
+     */
+    _updateSettings(patch) {
+      this._settings = /** @type {GlobalSettings} */
+      this._settingsStore.update({ ...this._settings, ...patch }).settings;
+      this._refreshScopePill();
     }
     _scheduleConfigSave() {
       if (this._configSaveTimer) clearTimeout(this._configSaveTimer);
@@ -4185,16 +4446,17 @@ ${report}
         const conf = plugin.getConfiguration ? plugin.getConfiguration() : this.getConfiguration();
         const custom = conf && conf.custom && typeof conf.custom === "object" ? conf.custom : {};
         const colors = this._normalizeColors(this._colors);
-        const settings = this._normalizeSettings(this._settings);
-        if (JSON.stringify(this._normalizeColors(custom.colors)) === JSON.stringify(colors) && JSON.stringify(this._normalizeSettings(custom.settings)) === JSON.stringify(settings)) return;
+        if (JSON.stringify(this._normalizeColors(custom.colors)) === JSON.stringify(colors)) return;
+        const settingsPatch = this._settingsStore.pendingCustomPatch();
         await plugin.saveConfiguration(
           /** @type {any} */
           configWithPluginVersion(conf, {
             schemaVersion: 1,
             colors,
-            settings
+            ...settingsPatch
           }, PLUGIN_VERSION)
         );
+        if (Object.keys(settingsPatch).length) this._settingsStore.markFlushed();
       } catch {
       } finally {
         this._configSaveInFlight = false;
@@ -4307,24 +4569,22 @@ ${report}
     }
     /** @param {SidebarTarget[]} targets */
     _setGlobalSidebarTargets(targets) {
-      this._settings = { ...this._settings, defaultSidebarTargets: targets };
+      this._updateSettings({ defaultSidebarTargets: targets });
       if (!targets.includes("pages") && !targets.includes("pageIcon")) {
         this._globalTintOpen.pagesVariation = false;
       }
       if (!targets.includes("title") && !targets.includes("titleIcon")) {
         this._globalTintOpen.titleVariation = false;
       }
-      this._saveSettings();
       this._writeTintStyle();
       this._renderPanel();
     }
     /** @param {BreadcrumbTarget[]} targets */
     _setGlobalBreadcrumbTargets(targets) {
-      this._settings = { ...this._settings, defaultBreadcrumbTargets: targets };
+      this._updateSettings({ defaultBreadcrumbTargets: targets });
       if (!targets.includes("views")) {
         this._globalTintOpen.viewsVariation = false;
       }
-      this._saveSettings();
       this._writeTintStyle();
       this._renderPanel();
     }
@@ -4336,8 +4596,7 @@ ${report}
     }
     /** @param {MenuTarget[]} targets */
     _setGlobalMenuTargets(targets) {
-      this._settings = { ...this._settings, defaultMenuTargets: targets };
-      this._saveSettings();
+      this._updateSettings({ defaultMenuTargets: targets });
       this._writeTintStyle();
       this._annotateAutocomplete();
       this._renderPanel();
@@ -4350,8 +4609,7 @@ ${report}
     }
     /** @param {MenuTarget[]} targets */
     _setGlobalMenuNewTargets(targets) {
-      this._settings = { ...this._settings, defaultMenuNewTargets: targets };
-      this._saveSettings();
+      this._updateSettings({ defaultMenuNewTargets: targets });
       this._writeTintStyle();
       this._annotateAutocomplete();
       this._renderPanel();
@@ -4371,8 +4629,7 @@ ${report}
     /** @param {'titleVariation' | 'pagesVariation' | 'viewsVariation'} key @param {Partial<VariationDelta>} patch */
     _setVariation(key, patch) {
       const next = { ...this._settings[key], ...patch };
-      this._settings = { ...this._settings, [key]: next };
-      this._saveSettings();
+      this._updateSettings({ [key]: next });
       this._writeTintStyle();
       this._renderPanel();
     }
@@ -4585,6 +4842,7 @@ ${report}
         onHelperToggle: /* @__PURE__ */ __name((open) => {
           this._headerHelperOpen = open;
         }, "onHelperToggle"),
+        scope: this._scopeArgs(),
         killSwitch: {
           on: !this._disabled,
           onToggle: /* @__PURE__ */ __name((nextOn) => {
@@ -4592,16 +4850,57 @@ ${report}
               clearTimeout(this._configSaveTimer);
               this._configSaveTimer = null;
             }
-            this._configDirty = false;
+            this._colorsDirty = false;
+            const settingsPatch = this._settingsStore.pendingCustomPatch();
             void setPluginDisabled(this, !nextOn, PLUGIN_VERSION, {
               schemaVersion: 1,
               colors: this._normalizeColors(this._colors),
-              settings: this._normalizeSettings(this._settings)
+              ...settingsPatch
+            }).then(() => {
+              if (Object.keys(settingsPatch).length) this._settingsStore.markFlushed();
             });
           }, "onToggle")
         },
         feedback: { data: this.data }
       });
+    }
+    /**
+     * Scope-cluster wiring for the header pill. The pill reflects SETTINGS
+     * divergence only — colors are always synced (newest wins), so they never
+     * light it up. Push = one saveConfiguration (the reload's hot-reload heal
+     * re-renders the panel); discard = two-tap armed in the shared cluster,
+     * then re-adopt synced values here.
+     */
+    _scopeArgs() {
+      return {
+        diverged: this._settingsStore.isDiverged(),
+        onPush: /* @__PURE__ */ __name(() => {
+          void this._settingsStore.pushToAll().then((ok) => {
+            if (!ok) return;
+            try {
+              this.ui.addToaster({ title: "Collection Colors", message: "Settings applied to all devices", dismissible: true, autoDestroyTime: 3e3 });
+            } catch {
+            }
+            this._refreshScopePill();
+          });
+        }, "onPush"),
+        onDiscard: /* @__PURE__ */ __name(() => {
+          this._settings = /** @type {GlobalSettings} */
+          this._settingsStore.discardLocal();
+          this._writeTintStyle();
+          this._annotateAutocomplete();
+          void this._renderPanel();
+          try {
+            this.ui.addToaster({ title: "Collection Colors", message: "Reverted to synced settings", dismissible: true, autoDestroyTime: 3e3 });
+          } catch {
+          }
+        }, "onDiscard")
+      };
+    }
+    /** Swap just the pill cluster — never nukes inputs (or the picker) mid-edit. */
+    _refreshScopePill() {
+      const el3 = this._panelEl?.querySelector?.(".tps-scope");
+      if (el3) el3.replaceWith(scopeCluster(this._scopeArgs()));
     }
     /** @param {() => HTMLElement} renderBody */
     _staticSection(renderBody) {
@@ -4735,7 +5034,7 @@ ${report}
         }
       ), "live");
       const commit = /* @__PURE__ */ __name(() => {
-        this._saveSettings();
+        this._updateSettings({});
         this._renderPanel();
       }, "commit");
       const groupLabel = key === "titleVariation" ? "Collection title" : key === "pagesVariation" ? "Page" : "Views";
@@ -4786,8 +5085,7 @@ ${report}
         invertRow.appendChild(invertCheckbox);
         invertRow.appendChild(el2("span", `${ROOT_CLASS}__focus-invert-label`, "Invert for light mode"));
         invertCheckbox.addEventListener("change", () => {
-          this._settings = { ...this._settings, highlightedTintInvert: invertCheckbox.checked };
-          this._saveSettings();
+          this._updateSettings({ highlightedTintInvert: invertCheckbox.checked });
           this._writeTintStyle();
         });
         wrap.appendChild(invertRow);
@@ -4796,15 +5094,13 @@ ${report}
     }
     /** @param {RowStateMode} mode */
     _setHighlightedItemMode(mode) {
-      this._settings = { ...this._settings, highlightedItemMode: mode };
-      this._saveSettings();
+      this._updateSettings({ highlightedItemMode: mode });
       this._writeTintStyle();
       this._renderPanel();
     }
     /** @param {number} shade */
     _setHighlightedTintShade(shade) {
-      this._settings = { ...this._settings, highlightedTintShade: normalizeRowTintShade(shade) };
-      this._saveSettings();
+      this._updateSettings({ highlightedTintShade: normalizeRowTintShade(shade) });
       this._writeTintStyle();
       this._renderPanel();
     }
@@ -5020,8 +5316,7 @@ ${report}
       const preset = PRESETS.find((p) => p.id === presetId);
       if (!preset) return;
       if (this._settings.animatePalette !== presetId) {
-        this._settings = { ...this._settings, animatePalette: presetId };
-        this._saveSettings();
+        this._updateSettings({ animatePalette: presetId });
       }
       const targets = this._presetTargetCollections();
       if (!targets.length) return;
@@ -5073,8 +5368,7 @@ ${report}
     }
     /** @param {boolean} on Reverse the palette direction (preview + animation). */
     _setReverse(on) {
-      this._settings = { ...this._settings, reverse: on };
-      this._saveSettings();
+      this._updateSettings({ reverse: on });
       if (this._preview) {
         this._startPreset(this._preview.presetId);
         return;
@@ -5177,8 +5471,7 @@ ${report}
       } else {
         this._stopAnimation();
         if (this._settings.animate) {
-          this._settings = { ...this._settings, animate: false };
-          this._saveSettings();
+          this._updateSettings({ animate: false });
         }
       }
       this._renderPanel();
@@ -5186,15 +5479,13 @@ ${report}
     /** Lock in the running animation: persist animate:on + current speed/palette. */
     _confirmAnimation() {
       if (!this._animRunning) return;
-      this._settings = { ...this._settings, animate: true };
-      this._saveSettings();
+      this._updateSettings({ animate: true });
       this._renderPanel();
     }
     /** @param {string} presetId */
     _setAnimatePalette(presetId) {
       if (!PRESETS.some((p) => p.id === presetId)) return;
-      this._settings = { ...this._settings, animatePalette: presetId };
-      this._saveSettings();
+      this._updateSettings({ animatePalette: presetId });
       if (this._animRunning) this._animTick();
       this._renderPanel();
     }
@@ -5210,9 +5501,8 @@ ${report}
     /** @param {number} speed @param {boolean} [commit] */
     _setAnimateSpeed(speed, commit) {
       const v = clampNum(speed, 0.01, 0.5, 0.06);
-      this._settings = { ...this._settings, animateSpeed: v };
-      if (commit) this._saveSettings();
-      else localStorage.setItem(this._settingsKey(), JSON.stringify(this._settings));
+      if (commit) this._updateSettings({ animateSpeed: v });
+      else this._settings = { ...this._settings, animateSpeed: v };
     }
     /** Palette-preset chip row, plus the Save/Cancel bar while previewing. */
     _renderPresetRow() {
@@ -5593,10 +5883,7 @@ ${report}
     }
     /** @param {string[]} list — user's saved custom swatches (global) */
     _onCustomSwatchesChange(list) {
-      this._settings = { ...this._settings, customSwatches: Array.isArray(list) ? list.filter(isHex2).slice(0, 44) : [] };
-      localStorage.setItem(this._settingsKey(), JSON.stringify(this._settings));
-      this._colorEditsPending = true;
-      this._configDirty = true;
+      this._updateSettings({ customSwatches: Array.isArray(list) ? list.filter(isHex2).slice(0, 44) : [] });
     }
     /** @param {string | null} color @returns {{type:'theme',token:string} | {type:'hex',hex:string} | {type:'tw',family:string,shadeIdx:number,invert:boolean} | null} */
     _colorFieldValue(color) {
