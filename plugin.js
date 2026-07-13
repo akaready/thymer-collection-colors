@@ -538,22 +538,24 @@ var plugins = (() => {
               border-color var(--tps-dur-fast, 80ms) var(--tps-ease-out, ease-out);
 }
 
-/* 16px: Tabler draws on a 24px grid; 14px lands strokes on half-pixels and
-   the thin arrow glyphs smear visibly off-center. 16px in the 22px button
-   gives an integer 3px inset and evenly-antialiased strokes. */
-.tps-panel .tps-scope-btn .ti {
-  width: 16px;
-  height: 16px;
-  font-size: 16px;
-  line-height: 1;
-  transform: none;
-  margin: 0;
+/* Inline-SVG icons: a viewBox-centered vector in a block box has no font
+   metrics \u2014 no baseline, no ascent/descent ink drift. The 14px vector in the
+   22px button gives an exact 4px inset on every side. */
+.tps-panel .tps-scope-svg {
+  display: flex;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
 }
 
-/* Optical correction: the Tabler webfont has near-zero descent, so glyph ink
-   rides ~1px high of the line-box center in ANY flex/line centering. Nudge
-   the ink itself; the boxes are already mathematically centered (probed). */
-.tps-panel .tps-scope-btn .ti::before,
+.tps-panel .tps-scope-svg svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Optical correction for the (still webfont) bug glyph: near-zero descent
+   rides the ink ~1px high of any line-box centering. */
 .tps-panel .tps-plugin-header-bug .ti::before {
   display: inline-block;
   transform: translateY(1px);
@@ -2237,6 +2239,13 @@ ${report}
     return h("div", { class: "tps-plugin-header" }, ...children);
   }
   __name(pluginHeader, "pluginHeader");
+  var SCOPE_SVG_NS = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+  function scopeSvgIcon(paths) {
+    const wrap = h("span", { class: "tps-scope-svg", "aria-hidden": "true" });
+    wrap.innerHTML = `${SCOPE_SVG_NS}${paths}</svg>`;
+    return wrap;
+  }
+  __name(scopeSvgIcon, "scopeSvgIcon");
   function scopeCluster(scope) {
     const pill = h(
       "span",
@@ -2271,7 +2280,7 @@ ${report}
           btn.disabled = false;
         }
       }, "onClick")
-    }, h("i", { class: "ti ti-arrow-up", "aria-hidden": "true" }));
+    }, scopeSvgIcon('<path d="M12 5v14"/><path d="M18 11l-6-6"/><path d="M6 11l6-6"/>'));
     let disarmTimer = 0;
     const discard = h("button", {
       type: "button",
@@ -2300,7 +2309,7 @@ ${report}
         } catch {
         }
       }, "onClick")
-    }, h("i", { class: "ti ti-arrow-back-up", "aria-hidden": "true" }));
+    }, scopeSvgIcon('<path d="M9 14L5 10l4-4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/>'));
     return h("span", { class: "tps-scope" }, pill, push, discard);
   }
   __name(scopeCluster, "scopeCluster");
@@ -3304,7 +3313,7 @@ ${report}
   __name(setPluginDisabled, "setPluginDisabled");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.3.5";
+  var PLUGIN_VERSION = "1.3.6";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
