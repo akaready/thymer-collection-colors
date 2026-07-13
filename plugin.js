@@ -472,6 +472,106 @@ var plugins = (() => {
   filter: brightness(1.2);
 }
 
+/* \u2500\u2500 Header controls: scope pill + bug report + kill switch \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+
+/* Settings-scope cluster. Resting: one dim "All devices" pill. Diverged:
+   pill lights amber (full-perimeter border + tint \u2014 never a single-edge
+   accent) and the \u2191 push / \u21BA discard icon buttons appear beside it. Amber
+   rides Thymer's orange enum tokens so it tracks the theme. */
+.tps-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tps-scope-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--tps-border, rgba(127, 127, 127, 0.16));
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--tps-text-muted);
+  background: transparent;
+  user-select: none;
+}
+
+.tps-scope-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tps-text-muted);
+  opacity: 0.55;
+}
+
+.tps-scope-pill[data-diverged="true"] {
+  color: var(--enum-orange-fg, #d98324);
+  border-color: var(--enum-orange-border, rgba(217, 131, 36, 0.45));
+  background: var(--enum-orange-bg, rgba(217, 131, 36, 0.12));
+}
+
+.tps-scope-pill[data-diverged="true"] .tps-scope-dot {
+  background: var(--enum-orange-fg, #d98324);
+  opacity: 1;
+}
+
+.tps-scope-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--tps-border, rgba(127, 127, 127, 0.16));
+  border-radius: var(--tps-radius-sm, 4px);
+  background: transparent;
+  color: var(--tps-text-muted);
+  cursor: pointer;
+  transition: color var(--tps-dur-fast, 80ms) var(--tps-ease-out, ease-out),
+              background-color var(--tps-dur-fast, 80ms) var(--tps-ease-out, ease-out),
+              border-color var(--tps-dur-fast, 80ms) var(--tps-ease-out, ease-out);
+}
+
+.tps-scope-btn .ti {
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+  transform: none;
+  margin: 0;
+}
+
+.tps-scope-btn:hover {
+  color: var(--tps-text);
+  background: var(--tps-bg-hover);
+  border-color: var(--tps-border);
+}
+
+.tps-scope-btn:focus-visible {
+  outline: 2px solid var(--tps-accent);
+  outline-offset: 2px;
+}
+
+.tps-scope-btn--push:hover {
+  color: var(--enum-green-fg, #3fa653);
+  border-color: var(--enum-green-border, rgba(63, 166, 83, 0.45));
+  background: var(--enum-green-bg, rgba(63, 166, 83, 0.12));
+}
+
+.tps-scope-btn--discard[data-armed="true"] {
+  color: var(--enum-red-fg, #d64545);
+  border-color: var(--enum-red-border, rgba(214, 69, 69, 0.5));
+  background: var(--enum-red-bg, rgba(214, 69, 69, 0.12));
+}
+
+.tps-scope-btn[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* \u2500\u2500 Header controls: bug report + kill switch \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 
 /* Last flex item of the attr row; margin-left:auto pins the group to the
@@ -2036,7 +2136,8 @@ ${report}
     repository = "https://github.com/akaready",
     coffee = "https://buymeacoffee.com/akaready",
     killSwitch = null,
-    feedback = null
+    feedback = null,
+    scope = null
   }) {
     const iconClass = icon ? icon.startsWith("ti-") ? icon : `ti-${icon}` : "";
     const helperLines = normalizeHelperLines(helper);
@@ -2092,9 +2193,10 @@ ${report}
           h("span", { class: "tps-plugin-header-icon tps-plugin-header-iconify tps-plugin-header-iconify-github", "aria-hidden": "true" }),
           h("a", { class: "tps-plugin-header-link tps-plugin-header-link--muted tps-plugin-header-version", href: repository, target: "_blank", rel: "noopener noreferrer" }, `v${version}`)
         ) : null,
-        fb || killSwitch ? h(
+        fb || killSwitch || scope ? h(
           "span",
           { class: "tps-plugin-header-controls" },
+          scope ? scopeCluster(scope) : null,
           fb ? renderFeedbackButton(fb) : null,
           killSwitch ? renderKillSwitch(killSwitch) : null
         ) : null
@@ -2110,6 +2212,70 @@ ${report}
     return h("div", { class: "tps-plugin-header" }, ...children);
   }
   __name(pluginHeader, "pluginHeader");
+  function scopeCluster(scope) {
+    const pill = h(
+      "span",
+      {
+        class: "tps-scope-pill",
+        "data-diverged": String(!!scope.diverged),
+        title: scope.diverged ? "These settings currently apply to this device only" : "Settings are synced \u2014 changes here start as this-device-only"
+      },
+      h("span", { class: "tps-scope-dot", "aria-hidden": "true" }),
+      scope.diverged ? "This device" : "All devices"
+    );
+    if (!scope.diverged) {
+      return h("span", { class: "tps-scope" }, pill);
+    }
+    const push = h("button", {
+      type: "button",
+      class: "tps-scope-btn tps-scope-btn--push",
+      title: "Apply these settings to all devices",
+      "aria-label": "Apply these settings to all devices",
+      onClick: /* @__PURE__ */ __name((e) => {
+        const btn = (
+          /** @type {HTMLButtonElement} */
+          e.currentTarget
+        );
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try {
+          scope.onPush();
+        } catch {
+          btn.disabled = false;
+        }
+      }, "onClick")
+    }, h("i", { class: "ti ti-arrow-up", "aria-hidden": "true" }));
+    let disarmTimer = 0;
+    const discard = h("button", {
+      type: "button",
+      class: "tps-scope-btn tps-scope-btn--discard",
+      title: "Discard device changes \u2014 revert to synced settings",
+      "aria-label": "Discard device changes",
+      onClick: /* @__PURE__ */ __name((e) => {
+        const btn = (
+          /** @type {HTMLButtonElement} */
+          e.currentTarget
+        );
+        if (btn.getAttribute("data-armed") !== "true") {
+          btn.setAttribute("data-armed", "true");
+          btn.title = "Tap again to discard device changes";
+          clearTimeout(disarmTimer);
+          disarmTimer = window.setTimeout(() => {
+            btn.removeAttribute("data-armed");
+            btn.title = "Discard device changes \u2014 revert to synced settings";
+          }, 3e3);
+          return;
+        }
+        clearTimeout(disarmTimer);
+        try {
+          scope.onDiscard();
+        } catch {
+        }
+      }, "onClick")
+    }, h("i", { class: "ti ti-arrow-back-up", "aria-hidden": "true" }));
+    return h("span", { class: "tps-scope" }, pill, push, discard);
+  }
+  __name(scopeCluster, "scopeCluster");
   function renderFeedbackButton(fb) {
     return h("button", {
       type: "button",
@@ -3008,6 +3174,17 @@ ${report}
     conf.custom, ...customPatch } : { ...customPatch };
     if (readPluginVersion(conf, "") === pluginVersion) return;
     try {
+      let ws = "default";
+      try {
+        ws = plugin.getWorkspaceGuid?.() || "default";
+      } catch {
+      }
+      const guardKey = `tps-version-synced/${ws}/${conf.name}`;
+      if (sessionStorage.getItem(guardKey) === pluginVersion) return;
+      sessionStorage.setItem(guardKey, pluginVersion);
+    } catch {
+    }
+    try {
       await api.saveConfiguration(configWithPluginVersion(conf, custom, pluginVersion));
     } catch {
     }
@@ -3099,7 +3276,7 @@ ${report}
   __name(setPluginDisabled, "setPluginDisabled");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.3.3";
+  var PLUGIN_VERSION = "1.3.4";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
