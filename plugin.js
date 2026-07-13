@@ -472,6 +472,345 @@ var plugins = (() => {
   filter: brightness(1.2);
 }
 
+/* \u2500\u2500 Header controls: bug report + kill switch \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+
+/* Last flex item of the attr row; margin-left:auto pins the group to the
+   right edge, align-self:center opts out of the row's baseline alignment. */
+.tps-plugin-header-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tps-space-2, 8px);
+  margin-left: auto;
+  align-self: center;
+  padding-left: var(--tps-space-3, 12px);
+}
+
+.tps-plugin-header-bug {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--tps-radius-sm, 4px);
+  background: transparent;
+  color: var(--tps-text-muted);
+  cursor: pointer;
+  transition: color var(--tps-dur-fast, 80ms) var(--tps-ease-out, ease-out),
+              background-color var(--tps-dur-fast, 80ms) var(--tps-ease-out, ease-out),
+              border-color var(--tps-dur-fast, 80ms) var(--tps-ease-out, ease-out);
+}
+
+/* Undo the attr row's generic .ti treatment (translateY + margin) inside the button. */
+.tps-plugin-header-bug .ti {
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+  transform: none;
+  margin: 0;
+}
+
+.tps-plugin-header-bug:hover {
+  color: var(--tps-text);
+  background: var(--tps-bg-hover);
+  border-color: var(--tps-border);
+}
+
+.tps-plugin-header-bug:focus-visible {
+  outline: 2px solid var(--tps-accent);
+  outline-offset: 2px;
+}
+
+.tps-switch {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--tps-border);
+  border-radius: var(--tps-radius-pill, 999px);
+  background: var(--tps-bg-input);
+  cursor: pointer;
+  transition: background-color var(--tps-dur-base, 160ms) var(--tps-ease-out, ease-out),
+              border-color var(--tps-dur-base, 160ms) var(--tps-ease-out, ease-out);
+}
+
+.tps-switch-knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--tps-radius-circle, 50%);
+  background: var(--tps-text-muted);
+  transition: transform var(--tps-dur-base, 160ms) var(--tps-ease-out, ease-out),
+              background-color var(--tps-dur-base, 160ms) var(--tps-ease-out, ease-out);
+}
+
+.tps-switch[aria-checked="true"] {
+  background: var(--tps-accent);
+  border-color: var(--tps-accent);
+}
+
+.tps-switch[aria-checked="true"] .tps-switch-knob {
+  transform: translateX(14px);
+  background: var(--tps-on-accent, #fff);
+}
+
+.tps-switch:focus-visible {
+  outline: 2px solid var(--tps-accent);
+  outline-offset: 2px;
+}
+
+.tps-switch[data-busy],
+.tps-switch:disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Off-state "safe mode": dim the body, keep it interactive \u2014 edits stage in the
+   plugin's local drafts and apply on re-enable. Keyed off the pill's aria state
+   so the optimistic flip dims instantly and heal re-renders stay correct with
+   no JS. The header (pill, bug button, off-note) stays full opacity \u2014 exclude
+   any direct child containing it (collection-icons wraps the header in a row
+   element, so exclude by content, not class). */
+.tps-panel:has(.tps-plugin-header .tps-switch[aria-checked="false"]) > :not(:has(.tps-plugin-header)) {
+  opacity: 0.65;
+  transition: opacity var(--tps-dur-base, 160ms) var(--tps-ease-out, ease-out);
+}
+
+/* Rendered whenever the header has a kill switch; shown only while it's off. */
+.tps-plugin-header-off-note {
+  display: none;
+  margin: var(--tps-space-2, 8px) 0 0;
+  font-size: var(--tps-fs-hint, 12px);
+  line-height: var(--tps-lh-base, 1.4);
+  color: var(--tps-text-muted);
+}
+
+.tps-plugin-header:has(.tps-switch[aria-checked="false"]) .tps-plugin-header-off-note {
+  display: block;
+}
+
+/* \u2500\u2500 Feedback dialog (panel-scoped modal) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+
+/* The overlay positions against the .tps-panel root (the scroll container). */
+.tps-panel {
+  position: relative;
+}
+
+.tps-feedback-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tps-space-4);
+  background: color-mix(in srgb, var(--panel-bg-color, light-dark(#ffffff, #131316)) 55%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+@supports not ((backdrop-filter: blur(6px)) or (-webkit-backdrop-filter: blur(6px))) {
+  .tps-feedback-overlay {
+    background: color-mix(in srgb, var(--panel-bg-color, light-dark(#ffffff, #131316)) 90%, transparent);
+  }
+}
+
+/* Flex column with a growing description field: the card stretches to the
+   available panel height (capped) and the textarea absorbs the difference,
+   so the card itself never needs a scrollbar. */
+.tps-feedback-card {
+  display: flex;
+  flex-direction: column;
+  width: min(440px, 100%);
+  height: min(760px, 100%);
+  overflow: auto;
+  background: var(--panel-bg-color, light-dark(#ffffff, #17171b));
+  border: 1px solid var(--tps-border);
+  border-radius: var(--tps-radius-lg);
+  padding: var(--tps-space-4);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+/* Rows keep their natural height \u2014 when content doesn't fit (e.g. the system
+   report drawer opens in a short panel) the CARD scrolls; rows must never be
+   squeezed into overlapping each other. Only the description field flexes. */
+.tps-feedback-card > * {
+  flex: 0 0 auto;
+}
+
+.tps-feedback-card > .tps-feedback-field--grow {
+  flex: 1 1 auto;
+}
+
+.tps-feedback-field--grow {
+  display: flex;
+  flex-direction: column;
+}
+
+.tps-feedback-field--grow .tps-feedback-textarea {
+  flex: 1 1 auto;
+  min-height: 72px;
+}
+
+.tps-feedback-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 var(--tps-space-2);
+}
+
+.tps-feedback-title {
+  margin: 0;
+  font-size: var(--tps-fs-label, 12.5px);
+  font-weight: var(--tps-fw-semibold, 600);
+  letter-spacing: var(--tps-ls-section, 0.06em);
+  text-transform: uppercase;
+  color: var(--tps-text);
+}
+
+.tps-feedback-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--tps-radius-sm, 4px);
+  background: transparent;
+  color: var(--tps-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tps-feedback-close:hover {
+  color: var(--tps-text);
+  background: var(--tps-bg-hover);
+  border-color: var(--tps-border);
+}
+
+.tps-feedback-close:focus-visible {
+  outline: 2px solid var(--tps-accent);
+  outline-offset: 2px;
+}
+
+.tps-feedback-hint {
+  margin: 0 0 var(--tps-space-3);
+  font-size: var(--tps-fs-hint, 12px);
+  line-height: var(--tps-lh-base, 1.4);
+  color: var(--tps-text-muted);
+}
+
+.tps-feedback-field {
+  display: block;
+  margin: 0 0 var(--tps-space-3);
+}
+
+.tps-feedback-label {
+  display: block;
+  margin: 0 0 var(--tps-space-1);
+  font-size: var(--tps-fs-label, 12.5px);
+  font-weight: var(--tps-fw-medium, 500);
+  color: var(--tps-text);
+}
+
+.tps-feedback-input,
+.tps-feedback-textarea {
+  width: 100%;
+  padding: var(--tps-space-1, 4px) var(--tps-space-2, 8px);
+  font-family: inherit;
+  font-size: var(--tps-fs-body, 13px);
+  line-height: var(--tps-lh-base, 1.4);
+  color: var(--tps-text);
+  background: var(--tps-bg-input);
+  border: 1px solid var(--tps-border);
+  border-radius: var(--tps-radius-sm, 4px);
+}
+
+.tps-feedback-textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.tps-feedback-input:focus,
+.tps-feedback-textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--tps-accent) 60%, transparent);
+}
+
+.tps-feedback-input[aria-invalid="true"],
+.tps-feedback-textarea[aria-invalid="true"] {
+  border-color: var(--tps-danger);
+}
+
+.tps-feedback-details {
+  margin: 0 0 var(--tps-space-3);
+}
+
+.tps-feedback-summary {
+  font-size: var(--tps-fs-hint, 12px);
+  color: var(--tps-text-muted);
+  cursor: pointer;
+}
+
+.tps-feedback-summary:hover {
+  color: var(--tps-text);
+}
+
+.tps-feedback-report {
+  margin: var(--tps-space-2) 0 0;
+  padding: var(--tps-space-2);
+  max-height: 140px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--tps-text-muted);
+  background: var(--tps-bg-input);
+  border: 1px solid var(--tps-divider);
+  border-radius: var(--tps-radius-sm, 4px);
+}
+
+/* Themed thin scrollbars \u2014 the card (short panels) and the report pre both scroll. */
+.tps-feedback-card,
+.tps-feedback-report {
+  scrollbar-width: thin;
+  scrollbar-color: var(--tps-border, rgba(127, 127, 127, 0.25)) transparent;
+}
+
+.tps-feedback-card::-webkit-scrollbar,
+.tps-feedback-report::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.tps-feedback-card::-webkit-scrollbar-track,
+.tps-feedback-report::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tps-feedback-card::-webkit-scrollbar-thumb,
+.tps-feedback-report::-webkit-scrollbar-thumb {
+  background: var(--tps-border, rgba(127, 127, 127, 0.25));
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.tps-feedback-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--tps-space-2);
+}
+
 /* \u2500\u2500 Section \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 
 .tps-section {
@@ -1375,39 +1714,301 @@ var plugins = (() => {
 }
 `;
 
+  // ../../shared/settings-ui/feedback.js
+  var MAX_URL_LENGTH = 7600;
+  function el(tag, props, ...children) {
+    const node = document.createElement(tag);
+    const dom = (
+      /** @type {any} */
+      node
+    );
+    if (props) {
+      for (const k in props) {
+        const v = props[k];
+        if (v == null || v === false) continue;
+        if (k === "class") node.className = v;
+        else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2).toLowerCase(), v);
+        else if (k in dom && typeof dom[k] !== "function") {
+          try {
+            dom[k] = v;
+          } catch {
+            node.setAttribute(k, v);
+          }
+        } else node.setAttribute(k, v === true ? "" : String(v));
+      }
+    }
+    for (const c of children.flat(Infinity)) {
+      if (c == null || c === false) continue;
+      node.appendChild(c instanceof Node ? c : document.createTextNode(String(c)));
+    }
+    return node;
+  }
+  __name(el, "el");
+  function versionFromConf(conf) {
+    if (!conf || typeof conf !== "object") return "";
+    if (typeof conf.version === "string" && conf.version) return conf.version;
+    const custom = conf.custom;
+    if (custom && typeof custom === "object") {
+      const v = (
+        /** @type {Record<string, unknown>} */
+        custom.pluginVersion
+      );
+      if (typeof v === "string") return v;
+    }
+    return "";
+  }
+  __name(versionFromConf, "versionFromConf");
+  async function collectSystemReport({ pluginName = "", pluginVersion = "", disabled = false, data } = {}) {
+    const ua = navigator.userAgent || "";
+    const lines = [];
+    lines.push(`Plugin: ${pluginName} v${pluginVersion}${disabled ? " (kill switch: OFF)" : ""}`);
+    lines.push(`App: ${/electron/i.test(ua) ? "Thymer desktop app (Electron)" : "Thymer web"}${location && location.host ? ` \xB7 ${location.host}` : ""}`);
+    lines.push(`UA: ${ua}`);
+    lines.push(`Platform: ${navigator.platform || "?"} \xB7 lang ${navigator.language || "?"} \xB7 tz ${Intl.DateTimeFormat().resolvedOptions().timeZone || "?"}`);
+    const dpr = Math.round((window.devicePixelRatio || 1) * 100) / 100;
+    lines.push(`Screen (css px): ${screen.width}x${screen.height} @${dpr}x (\u2248${Math.round(screen.width * dpr)}x${Math.round(screen.height * dpr)} device px) \xB7 viewport ${window.innerWidth}x${window.innerHeight}`);
+    try {
+      const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const themeClasses = Array.from(document.body.classList).filter((c) => /theme/i.test(c)).join(" ");
+      lines.push(`Appearance: ${dark ? "dark" : "light"}${reducedMotion ? " \xB7 reduced-motion" : ""}${themeClasses ? ` \xB7 body: ${themeClasses}` : ""}`);
+    } catch {
+    }
+    try {
+      const bits = [];
+      if (navigator.hardwareConcurrency) bits.push(`${navigator.hardwareConcurrency} cores`);
+      const devMem = (
+        /** @type {any} */
+        navigator.deviceMemory
+      );
+      if (devMem) bits.push(devMem >= 8 ? `RAM \u22658GB (API cap)` : `~${devMem}GB RAM`);
+      const heap = (
+        /** @type {any} */
+        performance.memory
+      );
+      if (heap && heap.usedJSHeapSize) bits.push(`JS heap ${Math.round(heap.usedJSHeapSize / 1048576)}MB of ${Math.round(heap.jsHeapSizeLimit / 1048576)}MB limit`);
+      bits.push(navigator.onLine === false ? "OFFLINE" : "online");
+      if (typeof performance.now === "function") bits.push(`session up ${Math.round(performance.now() / 6e4)}m`);
+      lines.push(`System: ${bits.join(" \xB7 ")}`);
+    } catch {
+    }
+    try {
+      if (navigator.storage && typeof navigator.storage.estimate === "function") {
+        const est = await navigator.storage.estimate();
+        if (est && est.usage != null) {
+          lines.push(`Storage: ${Math.round((est.usage || 0) / 1048576)}MB used${est.quota ? ` of ${Math.round(est.quota / 1048576)}MB quota` : ""}`);
+        }
+      }
+    } catch {
+    }
+    try {
+      if (data && typeof data.getAllGlobalPlugins === "function") {
+        const plugins = await data.getAllGlobalPlugins();
+        const listed = plugins.slice(0, 25).map((p) => {
+          let name = "";
+          let ver = "";
+          try {
+            name = p.getName?.() || "";
+          } catch {
+          }
+          try {
+            ver = versionFromConf(p.getConfiguration?.());
+          } catch {
+          }
+          return ver ? `${name} v${ver}` : name;
+        }).filter(Boolean);
+        if (listed.length) {
+          lines.push(`Global plugins, all installed (${plugins.length}): ${listed.join(", ")}${plugins.length > 25 ? ", \u2026" : ""}`);
+        }
+      }
+      if (data && typeof /** @type {any} */
+      data.getAllCollections === "function") {
+        const collections = await /** @type {any} */
+        data.getAllCollections();
+        if (Array.isArray(collections)) lines.push(`Collection-level plugins: ${collections.length} (names withheld)`);
+      }
+    } catch {
+    }
+    return lines.join("\n");
+  }
+  __name(collectSystemReport, "collectSystemReport");
+  function buildIssueUrl({ repository, description, discord, email, report }) {
+    const repo = repository.replace(/\/+$/, "");
+    const firstLine = description.split("\n")[0].trim();
+    const title = `[bug] ${firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine}`;
+    const bodyFor = /* @__PURE__ */ __name((desc2) => {
+      const parts = [`**Describe the bug**
+
+${desc2}`];
+      if (discord || email) {
+        const contact = [];
+        if (discord) contact.push(`- Discord: ${discord}`);
+        if (email) contact.push(`- Email: ${email}`);
+        parts.push(`**Contact**
+
+${contact.join("\n")}`);
+      }
+      parts.push(`**System report**
+
+\`\`\`
+${report}
+\`\`\``);
+      parts.push("_Screenshots: paste or drag images directly into this text box._");
+      return parts.join("\n\n");
+    }, "bodyFor");
+    const urlFor = /* @__PURE__ */ __name((desc2) => `${repo}/issues/new?${new URLSearchParams({ title, body: bodyFor(desc2) })}`, "urlFor");
+    let desc = description;
+    let url = urlFor(desc);
+    while (url.length > MAX_URL_LENGTH && desc.length > 200) {
+      desc = `${desc.slice(0, Math.max(200, desc.length - 500)).trimEnd()}
+
+[description truncated \u2014 URL length limit]`;
+      url = urlFor(desc);
+    }
+    return url;
+  }
+  __name(buildIssueUrl, "buildIssueUrl");
+  function openFeedbackDialog({ host, opener, pluginName = "", pluginVersion = "", repository = "", disabled = false, data } = {}) {
+    const panelHost = host || /** @type {HTMLElement | null} */
+    (opener ? opener.closest(".tps-panel") : null);
+    if (!panelHost || !repository) return;
+    if (panelHost.querySelector(".tps-feedback-overlay")) return;
+    const repoLabel = repository.replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/\/+$/, "");
+    const reportPromise = collectSystemReport({ pluginName, pluginVersion, disabled, data });
+    const discordInput = el("input", { class: "tps-feedback-input", type: "text", placeholder: "e.g. akaready", autocomplete: "off", spellcheck: "false" });
+    const emailInput = el("input", { class: "tps-feedback-input", type: "email", placeholder: "e.g. you@example.com", autocomplete: "off", spellcheck: "false" });
+    const descInput = el("textarea", { class: "tps-feedback-textarea", rows: "5", placeholder: "What happened? What did you expect instead?" });
+    const reportPre = el("pre", { class: "tps-feedback-report" }, "Collecting\u2026");
+    reportPromise.then((text) => {
+      reportPre.textContent = text;
+    }).catch(() => {
+      reportPre.textContent = "Report unavailable.";
+    });
+    const fieldRow = /* @__PURE__ */ __name((label, field, extraClass) => el(
+      "label",
+      { class: `tps-feedback-field${extraClass ? ` ${extraClass}` : ""}` },
+      el("span", { class: "tps-feedback-label" }, label),
+      field
+    ), "fieldRow");
+    const prevOverflow = panelHost.style.overflow;
+    const close = /* @__PURE__ */ __name(() => {
+      overlay.remove();
+      panelHost.style.overflow = prevOverflow;
+      try {
+        opener?.focus();
+      } catch {
+      }
+    }, "close");
+    const submit = /* @__PURE__ */ __name(async () => {
+      const description = descInput.value.trim();
+      if (!description) {
+        descInput.setAttribute("aria-invalid", "true");
+        descInput.focus();
+        return;
+      }
+      let report = "";
+      try {
+        report = await reportPromise;
+      } catch {
+      }
+      const url = buildIssueUrl({
+        repository,
+        description,
+        discord: discordInput.value.trim(),
+        email: emailInput.value.trim(),
+        report
+      });
+      window.open(url, "_blank", "noopener");
+      close();
+    }, "submit");
+    const card = el(
+      "div",
+      { class: "tps-feedback-card", role: "dialog", "aria-modal": "true", "aria-label": `Report a bug in ${pluginName}` },
+      el(
+        "div",
+        { class: "tps-feedback-head" },
+        el("h2", { class: "tps-feedback-title" }, "Report a bug"),
+        el(
+          "button",
+          { type: "button", class: "tps-feedback-close", "aria-label": "Close", onClick: close },
+          el("i", { class: "ti ti-x", "aria-hidden": "true" })
+        )
+      ),
+      el(
+        "p",
+        { class: "tps-feedback-hint" },
+        `Opens a prefilled GitHub issue on ${repoLabel}.`,
+        el("br"),
+        "Please paste screenshots into the GitHub form after it opens."
+      ),
+      fieldRow("Discord username (optional)", discordInput),
+      fieldRow("Email (optional)", emailInput),
+      fieldRow("What happened?", descInput, "tps-feedback-field--grow"),
+      el(
+        "details",
+        { class: "tps-feedback-details" },
+        el("summary", { class: "tps-feedback-summary" }, "System report (included with the issue)"),
+        reportPre
+      ),
+      el(
+        "div",
+        { class: "tps-feedback-actions" },
+        el("button", { type: "button", class: "tps-button tps-button--ghost", onClick: close }, "Cancel"),
+        el("button", { type: "button", class: "tps-button tps-button--primary", onClick: submit }, "Open GitHub issue")
+      )
+    );
+    const overlay = el("div", { class: "tps-feedback-overlay" }, card);
+    overlay.addEventListener("mousedown", (e) => {
+      if (e.target === overlay) close();
+    });
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    });
+    descInput.addEventListener("input", () => descInput.removeAttribute("aria-invalid"));
+    panelHost.style.overflow = "hidden";
+    overlay.style.top = `${panelHost.scrollTop}px`;
+    overlay.style.height = `${panelHost.clientHeight}px`;
+    panelHost.appendChild(overlay);
+    descInput.focus();
+  }
+  __name(openFeedbackDialog, "openFeedbackDialog");
+
   // ../../shared/settings-ui/helpers.js
   var PANEL_CSS = tokens_default + "\n" + components_default + "\n" + color_field_default;
   function h(tag, props, ...children) {
-    const el2 = document.createElement(tag);
+    const el3 = document.createElement(tag);
     const dom = (
       /** @type {any} */
-      el2
+      el3
     );
     if (props) {
       for (const k in props) {
         const v = props[k];
         if (v == null || v === false) continue;
         if (k === "class" || k === "className") {
-          el2.className = v;
+          el3.className = v;
         } else if (k === "style" && typeof v === "object") {
-          Object.assign(el2.style, v);
+          Object.assign(el3.style, v);
         } else if (k === "dataset" && typeof v === "object") {
-          for (const dk in v) el2.dataset[dk] = v[dk];
+          for (const dk in v) el3.dataset[dk] = v[dk];
         } else if (k.startsWith("on") && typeof v === "function") {
-          el2.addEventListener(k.slice(2).toLowerCase(), v);
+          el3.addEventListener(k.slice(2).toLowerCase(), v);
         } else if (k in dom && typeof dom[k] !== "function") {
           try {
             dom[k] = v;
           } catch {
-            el2.setAttribute(k, v);
+            el3.setAttribute(k, v);
           }
         } else {
-          el2.setAttribute(k, v === true ? "" : String(v));
+          el3.setAttribute(k, v === true ? "" : String(v));
         }
       }
     }
-    appendChildren(el2, children);
-    return el2;
+    appendChildren(el3, children);
+    return el3;
   }
   __name(h, "h");
   function appendChildren(parent, children) {
@@ -1433,10 +2034,19 @@ var plugins = (() => {
     author = "@akaready",
     homepage = "https://akaready.com",
     repository = "https://github.com/akaready",
-    coffee = "https://buymeacoffee.com/akaready"
+    coffee = "https://buymeacoffee.com/akaready",
+    killSwitch = null,
+    feedback = null
   }) {
     const iconClass = icon ? icon.startsWith("ti-") ? icon : `ti-${icon}` : "";
     const helperLines = normalizeHelperLines(helper);
+    const fb = feedback ? {
+      pluginName: (feedback === true ? "" : feedback.pluginName) || heading,
+      pluginVersion: (feedback === true ? "" : feedback.pluginVersion) || version,
+      repository: (feedback === true ? "" : feedback.repository) || repository,
+      disabled: (feedback === true ? void 0 : feedback.disabled) ?? (killSwitch ? !killSwitch.on : false),
+      data: feedback === true ? void 0 : feedback.data
+    } : null;
     const children = [
       iconClass ? h(
         "div",
@@ -1481,12 +2091,78 @@ var plugins = (() => {
           { class: "tps-plugin-header-link-group" },
           h("span", { class: "tps-plugin-header-icon tps-plugin-header-iconify tps-plugin-header-iconify-github", "aria-hidden": "true" }),
           h("a", { class: "tps-plugin-header-link tps-plugin-header-link--muted tps-plugin-header-version", href: repository, target: "_blank", rel: "noopener noreferrer" }, `v${version}`)
+        ) : null,
+        fb || killSwitch ? h(
+          "span",
+          { class: "tps-plugin-header-controls" },
+          fb ? renderFeedbackButton(fb) : null,
+          killSwitch ? renderKillSwitch(killSwitch) : null
         ) : null
-      )
+      ),
+      // Always rendered with a kill switch; CSS shows it only while the pill is
+      // off, so it appears instantly on the optimistic flip with no re-render.
+      killSwitch ? h(
+        "p",
+        { class: "tps-plugin-header-off-note" },
+        "Plugin is off \u2014 settings stay editable and your changes apply when you switch it back on."
+      ) : null
     ];
     return h("div", { class: "tps-plugin-header" }, ...children);
   }
   __name(pluginHeader, "pluginHeader");
+  function renderFeedbackButton(fb) {
+    return h("button", {
+      type: "button",
+      class: "tps-plugin-header-bug",
+      title: "Report a bug",
+      "aria-label": "Report a bug",
+      onClick: /* @__PURE__ */ __name((e) => {
+        const btn = (
+          /** @type {HTMLElement} */
+          e.currentTarget
+        );
+        openFeedbackDialog({
+          host: (
+            /** @type {HTMLElement | null} */
+            btn.closest(".tps-panel")
+          ),
+          opener: btn,
+          ...fb
+        });
+      }, "onClick")
+    }, h("i", { class: "ti ti-bug", "aria-hidden": "true" }));
+  }
+  __name(renderFeedbackButton, "renderFeedbackButton");
+  function renderKillSwitch(killSwitch) {
+    const sw = h("button", {
+      type: "button",
+      class: "tps-switch",
+      role: "switch",
+      "aria-checked": String(!!killSwitch.on),
+      "aria-label": killSwitch.label || "Plugin enabled",
+      title: killSwitch.on ? "Plugin enabled \u2014 click to disable all of its effects" : "Plugin disabled \u2014 click to re-enable"
+    }, h("span", { class: "tps-switch-knob" }));
+    const unlock = /* @__PURE__ */ __name(() => {
+      sw.removeAttribute("data-busy");
+      sw.disabled = false;
+    }, "unlock");
+    sw.addEventListener("click", () => {
+      if (sw.disabled) return;
+      const nextOn = sw.getAttribute("aria-checked") !== "true";
+      sw.setAttribute("aria-checked", String(nextOn));
+      sw.setAttribute("data-busy", "");
+      sw.disabled = true;
+      setTimeout(unlock, 700);
+      try {
+        killSwitch.onToggle(nextOn);
+      } catch {
+        unlock();
+        sw.setAttribute("aria-checked", String(!nextOn));
+      }
+    });
+    return sw;
+  }
+  __name(renderKillSwitch, "renderKillSwitch");
   function normalizeHelperLines(helper) {
     if (!helper) return [];
     if (typeof helper === "string") {
@@ -1532,7 +2208,7 @@ var plugins = (() => {
     return wrap;
   }
   __name(renderPluginHeaderHelper, "renderPluginHeaderHelper");
-  function pluginHeaderFromConfig(conf, { version, helper, helperOpen, helperDefaultOpen, onHelperToggle } = {}) {
+  function pluginHeaderFromConfig(conf, { version, helper, helperOpen, helperDefaultOpen, onHelperToggle, killSwitch, feedback } = {}) {
     const resolvedHelper = helper ?? conf.instructions;
     return pluginHeader({
       title: conf.name || "",
@@ -1546,7 +2222,9 @@ var plugins = (() => {
       author: conf.author,
       homepage: conf.homepage,
       repository: conf.repository,
-      coffee: conf.coffee
+      coffee: conf.coffee,
+      killSwitch,
+      feedback
     });
   }
   __name(pluginHeaderFromConfig, "pluginHeaderFromConfig");
@@ -1686,10 +2364,10 @@ var plugins = (() => {
     const roots = [];
     const seen = /* @__PURE__ */ new Set();
     const add = /* @__PURE__ */ __name((node) => {
-      const el2 = elementOrNull(node);
-      if (!el2 || seen.has(el2)) return;
-      seen.add(el2);
-      roots.push(el2);
+      const el3 = elementOrNull(node);
+      if (!el3 || seen.has(el3)) return;
+      seen.add(el3);
+      roots.push(el3);
     }, "add");
     add(document.documentElement);
     add(document.body);
@@ -1827,7 +2505,8 @@ var plugins = (() => {
   var WIN_FLAG = "__tpsInstantTooltip";
   function installInstantTooltip() {
     if (typeof document === "undefined") return;
-    if (typeof window !== "undefined" && window[WIN_FLAG]) return;
+    if (typeof window !== "undefined" && /** @type {any} */
+    window[WIN_FLAG]) return;
     if (typeof window !== "undefined") window[WIN_FLAG] = true;
     injectTooltipCss();
     const tip = document.createElement("div");
@@ -1835,7 +2514,7 @@ var plugins = (() => {
     tip.setAttribute("aria-hidden", "true");
     (document.body || document.documentElement).appendChild(tip);
     const hide = /* @__PURE__ */ __name(() => tip.classList.remove("is-visible"), "hide");
-    const label = /* @__PURE__ */ __name((el2) => el2.getAttribute("data-tps-tip") || el2.getAttribute("data-cf-tip") || "", "label");
+    const label = /* @__PURE__ */ __name((el3) => el3.getAttribute("data-tps-tip") || el3.getAttribute("data-cf-tip") || "", "label");
     document.addEventListener("mouseover", (e) => {
       const t = e.target instanceof Element ? e.target.closest(TIP_SELECTOR) : null;
       if (!t) {
@@ -2126,14 +2805,15 @@ var plugins = (() => {
     });
     let noneRef = null;
     if (allowNone) {
-      noneRef = h("button", { type: "button", class: "tps-cf-none" }, h("span", { class: "tps-cf-none-sw" }), "No color");
-      noneRef.addEventListener("click", () => {
+      const noneBtn = h("button", { type: "button", class: "tps-cf-none" }, h("span", { class: "tps-cf-none-sw" }), "No color");
+      noneBtn.addEventListener("click", () => {
         selection = { kind: "none" };
         renderAll();
         emit(null);
       });
       root.appendChild(h("div", { class: "tps-cf-divider" }));
-      root.appendChild(h("div", { class: "tps-cf-universal" }, noneRef));
+      root.appendChild(h("div", { class: "tps-cf-universal" }, noneBtn));
+      noneRef = noneBtn;
     }
     function pickHex(hex) {
       selection = { kind: "hex", hex };
@@ -2149,16 +2829,17 @@ var plugins = (() => {
       let twShadeSelected = false;
       if (selection) {
         if (selection.kind === "theme") {
-          const el2 = root.querySelector(`.tps-cf-swatch[data-token="${cssEscape(selection.token)}"]`);
-          if (el2) el2.classList.add("is-sel");
+          const el3 = root.querySelector(`.tps-cf-swatch[data-token="${cssEscape(selection.token)}"]`);
+          if (el3) el3.classList.add("is-sel");
         } else if (selection.kind === "hex") {
+          const selHex = selection.hex;
           const rc = lightRamp.querySelector(`.tps-cf-ramp-cell[data-si="${curShade}"]`);
-          if (rc && TAILWIND[curFamily][curShade] === selection.hex) {
+          if (rc && TAILWIND[curFamily][curShade] === selHex) {
             rc.classList.add("is-sel");
             twShadeSelected = true;
           }
           customRow.querySelectorAll(".tps-cf-custom-dot").forEach((d) => {
-            if (d.dataset.hex === selection.hex) d.classList.add("is-sel");
+            if (d.dataset.hex === selHex) d.classList.add("is-sel");
           });
         } else if (selection.kind === "none") {
           if (noneRef) noneRef.classList.add("is-sel");
@@ -2268,7 +2949,10 @@ var plugins = (() => {
   function readPluginVersion(conf, fallback = "0.0.1") {
     if (!conf || typeof conf !== "object") return fallback;
     if (typeof conf.version === "string" && conf.version) return conf.version;
-    const custom = conf.custom;
+    const custom = (
+      /** @type {Record<string, unknown> | undefined} */
+      conf.custom
+    );
     if (custom && typeof custom === "object" && typeof custom.pluginVersion === "string" && custom.pluginVersion) {
       return custom.pluginVersion;
     }
@@ -2289,11 +2973,33 @@ var plugins = (() => {
     };
   }
   __name(configWithPluginVersion, "configWithPluginVersion");
+  async function resolveConfigApi(plugin) {
+    if (!plugin) return null;
+    if (typeof plugin.saveConfiguration === "function") return plugin;
+    try {
+      const guid = typeof plugin.getGuid === "function" ? plugin.getGuid() : null;
+      const data = plugin.data;
+      if (guid && data && typeof data.getPluginByGuid === "function") {
+        const byGuid = data.getPluginByGuid(guid);
+        if (byGuid && typeof byGuid.saveConfiguration === "function") return byGuid;
+      }
+      if (data && typeof data.getAllGlobalPlugins === "function") {
+        const all = await data.getAllGlobalPlugins();
+        const name = plugin.getConfiguration?.()?.name;
+        const found = all.find((p) => p && typeof p.getGuid === "function" && p.getGuid() === guid) || (name ? all.find((p) => p && typeof p.getName === "function" && p.getName() === name) : null);
+        if (found && typeof found.saveConfiguration === "function") return found;
+      }
+    } catch {
+    }
+    return null;
+  }
+  __name(resolveConfigApi, "resolveConfigApi");
   async function syncPluginVersionOnLoad(plugin, pluginVersion, customPatch = {}) {
-    if (!plugin || typeof plugin.saveConfiguration !== "function") return;
+    const api = await resolveConfigApi(plugin);
+    if (!api) return;
     let conf = {};
     try {
-      conf = plugin.getConfiguration?.() || {};
+      conf = api.getConfiguration?.() || plugin.getConfiguration?.() || {};
     } catch {
       return;
     }
@@ -2302,14 +3008,98 @@ var plugins = (() => {
     conf.custom, ...customPatch } : { ...customPatch };
     if (readPluginVersion(conf, "") === pluginVersion) return;
     try {
-      await plugin.saveConfiguration(configWithPluginVersion(conf, custom, pluginVersion));
+      await api.saveConfiguration(configWithPluginVersion(conf, custom, pluginVersion));
     } catch {
     }
   }
   __name(syncPluginVersionOnLoad, "syncPluginVersionOnLoad");
 
+  // ../../shared/plugin-kill-switch.js
+  var MARKER_SYNC_HORIZON_MS = 9e4;
+  function isPluginDisabled(conf) {
+    if (!conf || typeof conf !== "object") return false;
+    const custom = conf.custom;
+    return !!(custom && typeof custom === "object" && /** @type {Record<string, unknown>} */
+    custom.pluginDisabled === true);
+  }
+  __name(isPluginDisabled, "isPluginDisabled");
+  function markerKey(plugin) {
+    let ws = "default";
+    try {
+      ws = plugin.getWorkspaceGuid?.() || "default";
+    } catch {
+    }
+    let name = "plugin";
+    try {
+      name = plugin.getConfiguration?.()?.name || "plugin";
+    } catch {
+    }
+    return `tps-kill-switch/${ws}/${name}`;
+  }
+  __name(markerKey, "markerKey");
+  function writeKillSwitchMarker(plugin, disabled) {
+    try {
+      localStorage.setItem(markerKey(plugin), JSON.stringify({ disabled, ts: Date.now() }));
+    } catch {
+    }
+  }
+  __name(writeKillSwitchMarker, "writeKillSwitchMarker");
+  function clearKillSwitchMarker(plugin) {
+    try {
+      localStorage.removeItem(markerKey(plugin));
+    } catch {
+    }
+  }
+  __name(clearKillSwitchMarker, "clearKillSwitchMarker");
+  function readKillSwitch(plugin) {
+    let conf = {};
+    try {
+      conf = plugin.getConfiguration?.() || {};
+    } catch {
+    }
+    const confDisabled = isPluginDisabled(conf);
+    try {
+      const raw = localStorage.getItem(markerKey(plugin));
+      if (raw) {
+        const marker = JSON.parse(raw);
+        if (marker && typeof marker.disabled === "boolean") {
+          if (marker.disabled === confDisabled) {
+            clearKillSwitchMarker(plugin);
+            return confDisabled;
+          }
+          if (Date.now() - (Number(marker.ts) || 0) < MARKER_SYNC_HORIZON_MS) {
+            return marker.disabled;
+          }
+          clearKillSwitchMarker(plugin);
+        }
+      }
+    } catch {
+    }
+    return confDisabled;
+  }
+  __name(readKillSwitch, "readKillSwitch");
+  async function setPluginDisabled(plugin, disabled, pluginVersion, customPatch = {}) {
+    const api = await resolveConfigApi(plugin);
+    if (!api) return;
+    let conf = {};
+    try {
+      conf = api.getConfiguration?.() || plugin.getConfiguration?.() || {};
+    } catch {
+      return;
+    }
+    if (typeof conf.name !== "string" || !conf.name.trim()) return;
+    if (readKillSwitch(plugin) === disabled && isPluginDisabled(conf) === disabled) return;
+    writeKillSwitchMarker(plugin, disabled);
+    try {
+      await api.saveConfiguration(configWithPluginVersion(conf, { ...customPatch, pluginDisabled: disabled }, pluginVersion));
+    } catch {
+      clearKillSwitchMarker(plugin);
+    }
+  }
+  __name(setPluginDisabled, "setPluginDisabled");
+
   // plugin.js
-  var PLUGIN_VERSION = "1.2.4";
+  var PLUGIN_VERSION = "1.3.2";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
@@ -2466,7 +3256,7 @@ var plugins = (() => {
   function _fireTelemetry(path) {
     _loadGoatCounter().then(() => {
       try {
-        window.goatcounter.count({ path, title: "", event: false });
+        window.goatcounter?.count?.({ path, title: "", event: false });
       } catch (_) {
       }
     });
@@ -2594,6 +3384,7 @@ var plugins = (() => {
       pingInstall("collection-colors");
       pingActive("collection-colors");
       void syncPluginVersionOnLoad(this, PLUGIN_VERSION);
+      this._disabled = readKillSwitch(this);
       installInstantTooltip();
       this._colors = this._loadColors();
       this._settings = this._loadSettings();
@@ -2607,31 +3398,6 @@ var plugins = (() => {
       this._panelEl = null;
       this._injectManagedCSS("plg-collection-colors-panel-css", PANEL_CSS);
       this._injectStaticCSS();
-      this._ensureTintStyle();
-      this._writeTintStyle();
-      this._setupSidebarObserver();
-      this._watchAppearance();
-      this._loadCollections();
-      this._collectionEventIds = ["collection.created", "collection.updated"].map((ev) => this.events.on(
-        /** @type {any} */
-        ev,
-        () => this._loadCollections()
-      ));
-      for (const ev of ["panel.navigated", "panel.focused"]) {
-        this._collectionEventIds.push(this.events.on(
-          /** @type {any} */
-          ev,
-          () => {
-            if (this._annotating) return;
-            this._annotating = true;
-            try {
-              this._annotateSidebar();
-            } finally {
-              this._annotating = false;
-            }
-          }
-        ));
-      }
       this.ui.registerCustomPanelType(PANEL_TYPE, (panel) => {
         try {
           panel.setTitle("Configure Collection Colors");
@@ -2648,6 +3414,40 @@ var plugins = (() => {
         icon: "palette",
         onSelected: /* @__PURE__ */ __name(() => this._openPanel(), "onSelected")
       });
+      this._loadCollections();
+      this._collectionEventIds = ["collection.created", "collection.updated"].map((ev) => this.events.on(
+        /** @type {any} */
+        ev,
+        () => this._loadCollections()
+      ));
+      this._watchAppearance();
+      try {
+        const staleRoot = document.querySelector(".plg-collection-colors-panel");
+        if (staleRoot && staleRoot.parentElement) {
+          this._panelEl = staleRoot.parentElement;
+          void this._renderPanel();
+        }
+      } catch {
+      }
+      if (this._disabled) return;
+      this._ensureTintStyle();
+      this._writeTintStyle();
+      this._setupSidebarObserver();
+      for (const ev of ["panel.navigated", "panel.focused"]) {
+        this._collectionEventIds.push(this.events.on(
+          /** @type {any} */
+          ev,
+          () => {
+            if (this._annotating) return;
+            this._annotating = true;
+            try {
+              this._annotateSidebar();
+            } finally {
+              this._annotating = false;
+            }
+          }
+        ));
+      }
       if (this._settings.animate) {
         this._animRunning = true;
         this._startAnimation();
@@ -2701,10 +3501,10 @@ var plugins = (() => {
         cancelAnimationFrame(this._appearanceRaf);
         this._appearanceRaf = null;
       }
-      document.querySelectorAll("[data-coll-parent]").forEach((el2) => el2.removeAttribute("data-coll-parent"));
-      document.querySelectorAll(`[${COLL_GUID_ATTR}]`).forEach((el2) => el2.removeAttribute(COLL_GUID_ATTR));
-      document.querySelectorAll(`[${SIDEBAR_ROOT_ATTR}]`).forEach((el2) => el2.removeAttribute(SIDEBAR_ROOT_ATTR));
-      document.querySelectorAll(`[${ACTIVE_ATTR}]`).forEach((el2) => el2.removeAttribute(ACTIVE_ATTR));
+      document.querySelectorAll("[data-coll-parent]").forEach((el3) => el3.removeAttribute("data-coll-parent"));
+      document.querySelectorAll(`[${COLL_GUID_ATTR}]`).forEach((el3) => el3.removeAttribute(COLL_GUID_ATTR));
+      document.querySelectorAll(`[${SIDEBAR_ROOT_ATTR}]`).forEach((el3) => el3.removeAttribute(SIDEBAR_ROOT_ATTR));
+      document.querySelectorAll(`[${ACTIVE_ATTR}]`).forEach((el3) => el3.removeAttribute(ACTIVE_ATTR));
       const tint = document.getElementById(TINT_STYLE_ID);
       if (tint) tint.remove();
       document.getElementById("plg-collection-colors-panel-css")?.remove();
@@ -2799,6 +3599,7 @@ var plugins = (() => {
       }
     }
     _annotateSidebar() {
+      if (this._disabled) return;
       this._discoverSidebarRoots();
       const roots = Array.from(this._sidebarRootObservers.keys()).filter((root) => root.isConnected);
       if (!roots.length) {
@@ -2806,8 +3607,8 @@ var plugins = (() => {
         return;
       }
       for (const sidebar of roots) {
-        sidebar.querySelectorAll("[data-coll-parent]").forEach((el2) => el2.removeAttribute("data-coll-parent"));
-        sidebar.querySelectorAll(`[${ACTIVE_ATTR}]`).forEach((el2) => el2.removeAttribute(ACTIVE_ATTR));
+        sidebar.querySelectorAll("[data-coll-parent]").forEach((el3) => el3.removeAttribute("data-coll-parent"));
+        sidebar.querySelectorAll(`[${ACTIVE_ATTR}]`).forEach((el3) => el3.removeAttribute(ACTIVE_ATTR));
         const collections = sidebar.querySelectorAll(".sidebar-item-collection");
         for (const coll of collections) {
           if (!(coll instanceof HTMLElement)) continue;
@@ -3172,11 +3973,14 @@ var plugins = (() => {
         const colors = this._normalizeColors(this._colors);
         const settings = this._normalizeSettings(this._settings);
         if (JSON.stringify(this._normalizeColors(custom.colors)) === JSON.stringify(colors) && JSON.stringify(this._normalizeSettings(custom.settings)) === JSON.stringify(settings)) return;
-        await plugin.saveConfiguration(configWithPluginVersion(conf, {
-          schemaVersion: 1,
-          colors,
-          settings
-        }, PLUGIN_VERSION));
+        await plugin.saveConfiguration(
+          /** @type {any} */
+          configWithPluginVersion(conf, {
+            schemaVersion: 1,
+            colors,
+            settings
+          }, PLUGIN_VERSION)
+        );
       } catch {
       } finally {
         this._configSaveInFlight = false;
@@ -3370,6 +4174,7 @@ var plugins = (() => {
       document.head.appendChild(style);
     }
     _writeTintStyle() {
+      if (this._disabled) return;
       this._ensureTintStyle();
       const node = document.getElementById(TINT_STYLE_ID);
       if (node) node.textContent = this._buildTintCSS();
@@ -3386,6 +4191,7 @@ var plugins = (() => {
         const { color: colorRaw, sidebarTargets, breadcrumbTargets } = this._getResolved(guid);
         if (!colorRaw) continue;
         const color = this._resolveColorValue(colorRaw);
+        if (!color) continue;
         const menuTargets = this._settings.defaultMenuTargets || [];
         const menuNewTargets = this._settings.defaultMenuNewTargets || [];
         const fromAnim = !!(this._animColors && Object.prototype.hasOwnProperty.call(this._animColors, guid));
@@ -3494,12 +4300,12 @@ var plugins = (() => {
      * width, or overflow.
      * @param {HTMLElement} el
      */
-    _forceLeftAlignSafe(el2) {
+    _forceLeftAlignSafe(el3) {
       try {
-        el2.style.setProperty("text-align", "left", "important");
-        el2.style.setProperty("margin-left", "0", "important");
-        el2.style.setProperty("margin-right", "auto", "important");
-        let p = el2.parentElement;
+        el3.style.setProperty("text-align", "left", "important");
+        el3.style.setProperty("margin-left", "0", "important");
+        el3.style.setProperty("margin-right", "auto", "important");
+        let p = el3.parentElement;
         for (let i = 0; i < 10 && p && p !== document.body; i++) {
           const cs = getComputedStyle(p);
           if (cs.textAlign === "center") {
@@ -3546,7 +4352,7 @@ var plugins = (() => {
         }
       }
       this._panelEl.textContent = "";
-      const root = el("div", `tps-panel ${ROOT_CLASS}__panel-root`);
+      const root = el2("div", `tps-panel ${ROOT_CLASS}__panel-root`);
       root.appendChild(this._renderHeader());
       root.appendChild(this._renderApplyToSection());
       root.appendChild(this._renderList());
@@ -3564,20 +4370,36 @@ var plugins = (() => {
         helperOpen: this._headerHelperOpen,
         onHelperToggle: /* @__PURE__ */ __name((open) => {
           this._headerHelperOpen = open;
-        }, "onHelperToggle")
+        }, "onHelperToggle"),
+        killSwitch: {
+          on: !this._disabled,
+          onToggle: /* @__PURE__ */ __name((nextOn) => {
+            if (this._configSaveTimer) {
+              clearTimeout(this._configSaveTimer);
+              this._configSaveTimer = null;
+            }
+            this._configDirty = false;
+            void setPluginDisabled(this, !nextOn, PLUGIN_VERSION, {
+              schemaVersion: 1,
+              colors: this._normalizeColors(this._colors),
+              settings: this._normalizeSettings(this._settings)
+            });
+          }, "onToggle")
+        },
+        feedback: { data: this.data }
       });
     }
     /** @param {() => HTMLElement} renderBody */
     _staticSection(renderBody) {
-      const wrap = el("section", "tps-section");
-      const body = el("div", "tps-section-body");
+      const wrap = el2("section", "tps-section");
+      const body = el2("div", "tps-section-body");
       body.appendChild(renderBody());
       wrap.appendChild(body);
       return wrap;
     }
     _renderApplyToSection() {
       return this._staticSection(() => {
-        const body = el("div", `${ROOT_CLASS}__apply-body`);
+        const body = el2("div", `${ROOT_CLASS}__apply-body`);
         const titleTintDisabled = !this._settings.defaultSidebarTargets.includes("title") && !this._settings.defaultSidebarTargets.includes("titleIcon");
         const pageTintDisabled = !this._settings.defaultSidebarTargets.includes("pages") && !this._settings.defaultSidebarTargets.includes("pageIcon");
         const viewsTintDisabled = !this._settings.defaultBreadcrumbTargets.includes("views");
@@ -3599,7 +4421,7 @@ var plugins = (() => {
         if (this._globalTintOpen.pagesVariation) sidebarGroup.appendChild(this._renderTintInBody("pagesVariation"));
         body.appendChild(sidebarGroup);
         body.appendChild(this._renderHighlightedItemSection());
-        body.appendChild(el("div", `${ROOT_CLASS}__apply-divider`));
+        body.appendChild(el2("div", `${ROOT_CLASS}__apply-divider`));
         const breadcrumbsGroup = this._renderTargetGroup(
           "Breadcrumbs",
           BREADCRUMB_TARGET_OPTIONS,
@@ -3641,7 +4463,7 @@ var plugins = (() => {
     /** @param {'titleVariation' | 'pagesVariation' | 'viewsVariation'} key @param {string} label @param {boolean} disabled @param {string} disabledTitle */
     _renderGlobalTintToggle(key, label, disabled, disabledTitle) {
       const active = this._globalTintOpen[key];
-      const btn = el("button", `${ROOT_CLASS}__tint-toggle ${active ? "is-active" : ""}`, label);
+      const btn = el2("button", `${ROOT_CLASS}__tint-toggle ${active ? "is-active" : ""}`, label);
       btn.type = "button";
       btn.disabled = disabled;
       btn.setAttribute("data-tps-tip", disabled ? disabledTitle : label);
@@ -3660,23 +4482,23 @@ var plugins = (() => {
      * @param {HTMLElement[]} [extraControls]
      */
     _renderTargetGroup(label, options, selected, onToggle, onNone, extraControls = []) {
-      const wrap = el("div", `${ROOT_CLASS}__target-group`);
-      wrap.appendChild(el("div", `${ROOT_CLASS}__target-label`, label));
-      const seg = el("div", `${ROOT_CLASS}__seg`);
-      const none = el("button", `${ROOT_CLASS}__seg-btn ${selected.length === 0 ? "is-active" : ""}`, "None");
+      const wrap = el2("div", `${ROOT_CLASS}__target-group`);
+      wrap.appendChild(el2("div", `${ROOT_CLASS}__target-label`, label));
+      const seg = el2("div", `${ROOT_CLASS}__seg`);
+      const none = el2("button", `${ROOT_CLASS}__seg-btn ${selected.length === 0 ? "is-active" : ""}`, "None");
       none.type = "button";
       none.addEventListener("click", onNone);
       seg.appendChild(none);
       for (const opt of options) {
         const active = selected.includes(opt.val);
-        const b = el("button", `${ROOT_CLASS}__seg-btn ${active ? "is-active" : ""}`, opt.label);
+        const b = el2("button", `${ROOT_CLASS}__seg-btn ${active ? "is-active" : ""}`, opt.label);
         b.type = "button";
         b.addEventListener("click", () => onToggle(opt.val));
         seg.appendChild(b);
       }
       wrap.appendChild(seg);
       if (extraControls.length) {
-        const tintRow = el("div", `${ROOT_CLASS}__tint-toggles`);
+        const tintRow = el2("div", `${ROOT_CLASS}__tint-toggles`);
         for (const control of extraControls) tintRow.appendChild(control);
         wrap.appendChild(tintRow);
       }
@@ -3684,13 +4506,13 @@ var plugins = (() => {
     }
     /** @param {'titleVariation' | 'pagesVariation' | 'viewsVariation'} key */
     _renderTintInBody(key) {
-      const wrap = el("div", `${ROOT_CLASS}__tint-inline`);
+      const wrap = el2("div", `${ROOT_CLASS}__tint-inline`);
       const labels = {
         titleVariation: "Collection title tinting",
         pagesVariation: "Page tinting",
         viewsVariation: "Views tinting"
       };
-      wrap.appendChild(el("div", `${ROOT_CLASS}__tint-inline-label`, labels[key]));
+      wrap.appendChild(el2("div", `${ROOT_CLASS}__tint-inline-label`, labels[key]));
       const live = /* @__PURE__ */ __name((k) => (
         /** @param {Partial<VariationDelta>} p */
         (p) => {
@@ -3713,9 +4535,9 @@ var plugins = (() => {
       return wrap;
     }
     _renderHighlightedItemSection() {
-      const wrap = el("div", `${ROOT_CLASS}__highlighted-item`);
-      wrap.appendChild(el("div", `${ROOT_CLASS}__target-label`, "Highlighted"));
-      const seg = el("div", `${ROOT_CLASS}__seg`);
+      const wrap = el2("div", `${ROOT_CLASS}__highlighted-item`);
+      wrap.appendChild(el2("div", `${ROOT_CLASS}__target-label`, "Highlighted"));
+      const seg = el2("div", `${ROOT_CLASS}__seg`);
       for (
         const opt of
         /** @type {const} */
@@ -3726,7 +4548,7 @@ var plugins = (() => {
         ]
       ) {
         const active = this._settings.highlightedItemMode === opt.val;
-        const b = el("button", `${ROOT_CLASS}__seg-btn ${active ? "is-active" : ""}`, opt.label);
+        const b = el2("button", `${ROOT_CLASS}__seg-btn ${active ? "is-active" : ""}`, opt.label);
         b.type = "button";
         b.setAttribute("data-tps-tip", opt.tip);
         b.addEventListener("click", () => this._setHighlightedItemMode(opt.val));
@@ -3734,21 +4556,21 @@ var plugins = (() => {
       }
       wrap.appendChild(seg);
       if (this._settings.highlightedItemMode === "tint") {
-        const shades = el("div", `${ROOT_CLASS}__tint-shades`);
+        const shades = el2("div", `${ROOT_CLASS}__tint-shades`);
         for (const shade of TW_SHADES) {
           const active = normalizeRowTintShade(this._settings.highlightedTintShade) === shade;
-          const btn = el("button", `${ROOT_CLASS}__shade-btn ${active ? "is-active" : ""}`, String(shade));
+          const btn = el2("button", `${ROOT_CLASS}__shade-btn ${active ? "is-active" : ""}`, String(shade));
           btn.type = "button";
           btn.addEventListener("click", () => this._setHighlightedTintShade(shade));
           shades.appendChild(btn);
         }
         wrap.appendChild(shades);
-        const invertCheckbox = el("input", `${ROOT_CLASS}__focus-invert-cb`);
+        const invertCheckbox = el2("input", `${ROOT_CLASS}__focus-invert-cb`);
         invertCheckbox.type = "checkbox";
         invertCheckbox.checked = this._settings.highlightedTintInvert;
-        const invertRow = el("label", `${ROOT_CLASS}__focus-invert`);
+        const invertRow = el2("label", `${ROOT_CLASS}__focus-invert`);
         invertRow.appendChild(invertCheckbox);
-        invertRow.appendChild(el("span", `${ROOT_CLASS}__focus-invert-label`, "Invert for light mode"));
+        invertRow.appendChild(el2("span", `${ROOT_CLASS}__focus-invert-label`, "Invert for light mode"));
         invertCheckbox.addEventListener("change", () => {
           this._settings = { ...this._settings, highlightedTintInvert: invertCheckbox.checked };
           this._saveSettings();
@@ -3794,7 +4616,7 @@ var plugins = (() => {
      * @param {string} label @param {VariationDelta} v
      */
     _variationSummary(label, v) {
-      const span = el("span", `${ROOT_CLASS}__variation-summary`);
+      const span = el2("span", `${ROOT_CLASS}__variation-summary`);
       const isZero = v.hueShift === 0 && v.satDelta === 0 && v.lightDelta === 0;
       span.textContent = isZero ? `${label} 0` : `${label} ${v.hueShift > 0 ? "+" : ""}${v.hueShift}\xB0/${v.satDelta > 0 ? "+" : ""}${v.satDelta}/${v.lightDelta > 0 ? "+" : ""}${v.lightDelta}`;
       if (!isZero) span.classList.add("is-active");
@@ -3808,17 +4630,17 @@ var plugins = (() => {
      * @param {() => void} onReset
      */
     _renderVariationGroup(label, v, onLive, onCommit, onReset) {
-      const group = el("div", `${ROOT_CLASS}__variation-group`);
-      const head = el("div", `${ROOT_CLASS}__variation-group-head`);
-      head.appendChild(el("div", `${ROOT_CLASS}__variation-group-label`, label));
-      const reset = el("button", `${ROOT_CLASS}__variation-reset`, "Reset");
+      const group = el2("div", `${ROOT_CLASS}__variation-group`);
+      const head = el2("div", `${ROOT_CLASS}__variation-group-head`);
+      head.appendChild(el2("div", `${ROOT_CLASS}__variation-group-label`, label));
+      const reset = el2("button", `${ROOT_CLASS}__variation-reset`, "Reset");
       reset.type = "button";
       reset.addEventListener("click", onReset);
       head.appendChild(reset);
       group.appendChild(head);
       const mode = v.mode === "tailwind" || !v.mode && true ? "tailwind" : "hsl";
       if (true) {
-        const modeRow = el("div", `${ROOT_CLASS}__tint-mode`);
+        const modeRow = el2("div", `${ROOT_CLASS}__tint-mode`);
         for (
           const opt of
           /** @type {const} */
@@ -3828,7 +4650,7 @@ var plugins = (() => {
           ]
         ) {
           const active = mode === opt.key;
-          const btn = el("button", `${ROOT_CLASS}__tint-mode-btn ${active ? "is-active" : ""}`, opt.label);
+          const btn = el2("button", `${ROOT_CLASS}__tint-mode-btn ${active ? "is-active" : ""}`, opt.label);
           btn.type = "button";
           btn.addEventListener("click", () => {
             onLive({ mode: opt.key });
@@ -3839,10 +4661,10 @@ var plugins = (() => {
         group.appendChild(modeRow);
       }
       if (mode === "tailwind" && true) {
-        const shades = el("div", `${ROOT_CLASS}__tint-shades`);
+        const shades = el2("div", `${ROOT_CLASS}__tint-shades`);
         for (const shade of TAILWIND_SHADES) {
           const active = normalizeTailwindShade(v.tailwindShade) === shade;
-          const btn = el("button", `${ROOT_CLASS}__shade-btn ${active ? "is-active" : ""}`, String(shade));
+          const btn = el2("button", `${ROOT_CLASS}__shade-btn ${active ? "is-active" : ""}`, String(shade));
           btn.type = "button";
           btn.addEventListener("click", () => {
             onLive({ mode: "tailwind", tailwindShade: shade });
@@ -3866,15 +4688,15 @@ var plugins = (() => {
      * @param {() => void} onCommit                            on release: save + re-render
      */
     _sliderRow(label, key, min, max, suffix, value, onLive, onCommit) {
-      const row = el("div", `${ROOT_CLASS}__slider-row`);
-      row.appendChild(el("div", `${ROOT_CLASS}__slider-label`, label));
-      const input = el("input", `${ROOT_CLASS}__slider`);
+      const row = el2("div", `${ROOT_CLASS}__slider-row`);
+      row.appendChild(el2("div", `${ROOT_CLASS}__slider-label`, label));
+      const input = el2("input", `${ROOT_CLASS}__slider`);
       input.type = "range";
       input.min = String(min);
       input.max = String(max);
       input.step = "1";
       input.value = String(value);
-      const readout = el("div", `${ROOT_CLASS}__slider-value`, `${value > 0 ? "+" : ""}${value}${suffix}`);
+      const readout = el2("div", `${ROOT_CLASS}__slider-value`, `${value > 0 ? "+" : ""}${value}${suffix}`);
       input.addEventListener("input", () => {
         const n = Number(input.value);
         readout.textContent = `${n > 0 ? "+" : ""}${n}${suffix}`;
@@ -3917,6 +4739,7 @@ var plugins = (() => {
       const collection = this._collections.find((c) => c.getGuid() === guid);
       return collection ? this._isSidebarSeparator(collection) : false;
     }
+    /** @param {boolean} checked */
     _onHideSeparatorsChange(checked) {
       this._hideSeparators = checked;
       if (checked && this._colorGuid && this._isSidebarSeparatorGuid(this._colorGuid)) {
@@ -4088,7 +4911,7 @@ var plugins = (() => {
     }
     _startAnimation() {
       this._stopAnimation();
-      if (!this._animRunning) return;
+      if (this._disabled || !this._animRunning) return;
       this._preview = null;
       this._refreshAnimTargets();
       this._animTick();
@@ -4179,15 +5002,15 @@ var plugins = (() => {
     }
     /** Palette-preset chip row, plus the Save/Cancel bar while previewing. */
     _renderPresetRow() {
-      const wrap = el("div", `${ROOT_CLASS}__preset-row`);
+      const wrap = el2("div", `${ROOT_CLASS}__preset-row`);
       const hasTargets = this._presetTargetCollections().length > 0;
       const animating = this._animRunning;
       const canAnimate = this._canAnimate();
-      const head = el("div", `${ROOT_CLASS}__preset-head`);
-      head.appendChild(el("div", `${ROOT_CLASS}__preset-label`, "Palette"));
-      const headRight = el("div", `${ROOT_CLASS}__preset-head-right`);
-      const revLabel = el("label", `${ROOT_CLASS}__preset-animate`);
-      const revCb = el("input", `${ROOT_CLASS}__preset-animate-cb`);
+      const head = el2("div", `${ROOT_CLASS}__preset-head`);
+      head.appendChild(el2("div", `${ROOT_CLASS}__preset-label`, "Palette"));
+      const headRight = el2("div", `${ROOT_CLASS}__preset-head-right`);
+      const revLabel = el2("label", `${ROOT_CLASS}__preset-animate`);
+      const revCb = el2("input", `${ROOT_CLASS}__preset-animate-cb`);
       revCb.type = "checkbox";
       revCb.checked = !!this._settings.reverse;
       revCb.setAttribute("data-tps-tip", "Reverse the gradient direction");
@@ -4196,10 +5019,10 @@ var plugins = (() => {
         e.target.checked
       ));
       revLabel.appendChild(revCb);
-      revLabel.appendChild(el("span", `${ROOT_CLASS}__preset-animate-label`, "Reverse"));
+      revLabel.appendChild(el2("span", `${ROOT_CLASS}__preset-animate-label`, "Reverse"));
       headRight.appendChild(revLabel);
-      const animLabel = el("label", `${ROOT_CLASS}__preset-animate${!animating && !canAnimate ? " is-disabled" : ""}`);
-      const animCb = el("input", `${ROOT_CLASS}__preset-animate-cb`);
+      const animLabel = el2("label", `${ROOT_CLASS}__preset-animate${!animating && !canAnimate ? " is-disabled" : ""}`);
+      const animCb = el2("input", `${ROOT_CLASS}__preset-animate-cb`);
       animCb.type = "checkbox";
       animCb.checked = animating;
       animCb.disabled = !animating && !canAnimate;
@@ -4208,46 +5031,46 @@ var plugins = (() => {
         e.target.checked
       ));
       animLabel.appendChild(animCb);
-      animLabel.appendChild(el("span", `${ROOT_CLASS}__preset-animate-label`, "Animate"));
+      animLabel.appendChild(el2("span", `${ROOT_CLASS}__preset-animate-label`, "Animate"));
       headRight.appendChild(animLabel);
       head.appendChild(headRight);
       wrap.appendChild(head);
-      const chips = el("div", `${ROOT_CLASS}__preset-chips`);
+      const chips = el2("div", `${ROOT_CLASS}__preset-chips`);
       for (const preset of PRESETS) {
         const active = animating ? this._settings.animatePalette === preset.id : !!this._preview && this._preview.presetId === preset.id;
-        const chip = el("button", `${ROOT_CLASS}__preset-chip${active ? " is-active" : ""}`);
+        const chip = el2("button", `${ROOT_CLASS}__preset-chip${active ? " is-active" : ""}`);
         chip.type = "button";
         chip.disabled = !hasTargets;
         chip.setAttribute("data-tps-tip", animating ? `Animate: ${preset.label}` : preset.label);
         const hexes = this._presetHexes(preset);
-        const grad = el("span", `${ROOT_CLASS}__preset-chip-grad`);
+        const grad = el2("span", `${ROOT_CLASS}__preset-chip-grad`);
         grad.style.background = hexes.length === 1 ? hexes[0] : `linear-gradient(90deg, ${hexes.join(", ")})`;
         chip.appendChild(grad);
-        chip.appendChild(el("span", `${ROOT_CLASS}__preset-chip-name`, preset.label));
+        chip.appendChild(el2("span", `${ROOT_CLASS}__preset-chip-name`, preset.label));
         chip.addEventListener("click", () => animating ? this._setAnimatePalette(preset.id) : this._startPreset(preset.id));
         chips.appendChild(chip);
       }
       const nColors = Object.keys(this._colors).length;
-      const clearChip = el("button", `${ROOT_CLASS}__preset-chip ${ROOT_CLASS}__preset-chip--clear`);
+      const clearChip = el2("button", `${ROOT_CLASS}__preset-chip ${ROOT_CLASS}__preset-chip--clear`);
       clearChip.type = "button";
       clearChip.disabled = !nColors && !this._preview;
       clearChip.setAttribute("data-tps-tip", "Clear all collection colors");
-      clearChip.appendChild(el("span", `${ROOT_CLASS}__preset-chip-grad ${ROOT_CLASS}__swatch-summary-dot--none`));
-      clearChip.appendChild(el("span", `${ROOT_CLASS}__preset-chip-name`, "Clear"));
+      clearChip.appendChild(el2("span", `${ROOT_CLASS}__preset-chip-grad ${ROOT_CLASS}__swatch-summary-dot--none`));
+      clearChip.appendChild(el2("span", `${ROOT_CLASS}__preset-chip-name`, "Clear"));
       clearChip.addEventListener("click", () => this._clearAllColors());
       chips.appendChild(clearChip);
       wrap.appendChild(chips);
       if (animating) {
-        const bar = el("div", `${ROOT_CLASS}__anim-bar`);
-        bar.appendChild(el("span", `${ROOT_CLASS}__anim-bar-label`, "Speed"));
-        const slider = el("input", `${ROOT_CLASS}__anim-speed`);
+        const bar = el2("div", `${ROOT_CLASS}__anim-bar`);
+        bar.appendChild(el2("span", `${ROOT_CLASS}__anim-bar-label`, "Speed"));
+        const slider = el2("input", `${ROOT_CLASS}__anim-speed`);
         slider.type = "range";
         slider.min = "0.01";
         slider.max = "0.5";
         slider.step = "0.01";
         slider.value = String(this._settings.animateSpeed ?? 0.06);
         const speedNum = /* @__PURE__ */ __name((v) => String(Math.round(v * 100)), "speedNum");
-        const readout = el("span", `${ROOT_CLASS}__anim-speed-val`, speedNum(this._settings.animateSpeed ?? 0.06));
+        const readout = el2("span", `${ROOT_CLASS}__anim-speed-val`, speedNum(this._settings.animateSpeed ?? 0.06));
         slider.addEventListener("input", (e) => {
           const v = parseFloat(
             /** @type {HTMLInputElement} */
@@ -4266,29 +5089,29 @@ var plugins = (() => {
         const n = this._presetTargetCollections().length;
         const covered = this._animOverwriteCount();
         const confirmed = !!this._settings.animate;
-        const gate = el("div", `${ROOT_CLASS}__preset-bar`);
-        const ginfo = el("div", `${ROOT_CLASS}__preset-info`);
-        ginfo.appendChild(el(
+        const gate = el2("div", `${ROOT_CLASS}__preset-bar`);
+        const ginfo = el2("div", `${ROOT_CLASS}__preset-info`);
+        ginfo.appendChild(el2(
           "span",
           `${ROOT_CLASS}__preset-info-main`,
           confirmed ? `Animating \u2014 ${n} collection${n === 1 ? "" : "s"}` : `Preview \u2014 ${n} collection${n === 1 ? "" : "s"}`
         ));
         if (covered > 0) {
-          ginfo.appendChild(el(
+          ginfo.appendChild(el2(
             "span",
             `${ROOT_CLASS}__preset-info-warn`,
             `covers ${covered} saved color${covered === 1 ? "" : "s"}`
           ));
         }
         gate.appendChild(ginfo);
-        const gactions = el("div", `${ROOT_CLASS}__preset-actions`);
-        const stop = el("button", `${ROOT_CLASS}__preset-cancel`, "Turn off");
+        const gactions = el2("div", `${ROOT_CLASS}__preset-actions`);
+        const stop = el2("button", `${ROOT_CLASS}__preset-cancel`, "Turn off");
         stop.type = "button";
         stop.setAttribute("data-tps-tip", "Stop animating and revert");
         stop.addEventListener("click", () => this._setAnimate(false));
         gactions.appendChild(stop);
         if (!confirmed) {
-          const confirm = el("button", `${ROOT_CLASS}__preset-save`, "Confirm");
+          const confirm = el2("button", `${ROOT_CLASS}__preset-save`, "Confirm");
           confirm.type = "button";
           confirm.setAttribute("data-tps-tip", "Lock in the animation and speed");
           confirm.addEventListener("click", () => this._confirmAnimation());
@@ -4300,26 +5123,26 @@ var plugins = (() => {
       if (!animating && this._preview) {
         const count = this._preview.included.size;
         const overwrite = this._presetOverwriteCount();
-        const bar = el("div", `${ROOT_CLASS}__preset-bar`);
-        const info = el("div", `${ROOT_CLASS}__preset-info`);
-        info.appendChild(el(
+        const bar = el2("div", `${ROOT_CLASS}__preset-bar`);
+        const info = el2("div", `${ROOT_CLASS}__preset-info`);
+        info.appendChild(el2(
           "span",
           `${ROOT_CLASS}__preset-info-main`,
           `Previewing \u2014 ${count} collection${count === 1 ? "" : "s"}`
         ));
         if (overwrite > 0) {
-          info.appendChild(el(
+          info.appendChild(el2(
             "span",
             `${ROOT_CLASS}__preset-info-warn`,
             `${overwrite} will be overwritten`
           ));
         }
         bar.appendChild(info);
-        const actions = el("div", `${ROOT_CLASS}__preset-actions`);
-        const cancel = el("button", `${ROOT_CLASS}__preset-cancel`, "Cancel");
+        const actions = el2("div", `${ROOT_CLASS}__preset-actions`);
+        const cancel = el2("button", `${ROOT_CLASS}__preset-cancel`, "Cancel");
         cancel.type = "button";
         cancel.addEventListener("click", () => this._cancelPreset());
-        const save = el("button", `${ROOT_CLASS}__preset-save`, count ? `Apply to ${count}` : "Apply");
+        const save = el2("button", `${ROOT_CLASS}__preset-save`, count ? `Apply to ${count}` : "Apply");
         save.type = "button";
         save.disabled = !count;
         save.addEventListener("click", () => this._savePreset());
@@ -4339,9 +5162,9 @@ var plugins = (() => {
     }
     _renderList() {
       return this._staticSection(() => {
-        const body = el("div", `${ROOT_CLASS}__list-section`);
-        const toolbar = el("div", `${ROOT_CLASS}__list-toolbar`);
-        const search = el("input", `${ROOT_CLASS}__collection-search`);
+        const body = el2("div", `${ROOT_CLASS}__list-section`);
+        const toolbar = el2("div", `${ROOT_CLASS}__list-toolbar`);
+        const search = el2("input", `${ROOT_CLASS}__collection-search`);
         search.type = "search";
         search.placeholder = "Search collections";
         search.value = this._collectionSearch;
@@ -4351,11 +5174,11 @@ var plugins = (() => {
           this._renderListRowsIntoPanel();
         });
         toolbar.appendChild(search);
-        const refreshBtn = el("button", `${ROOT_CLASS}__refresh`);
+        const refreshBtn = el2("button", `${ROOT_CLASS}__refresh`);
         refreshBtn.type = "button";
         refreshBtn.setAttribute("aria-label", "Refresh collections");
         refreshBtn.setAttribute("data-tps-tip", "Refresh collections");
-        refreshBtn.appendChild(el("span", `${ROOT_CLASS}__refresh-icon ti ti-refresh`));
+        refreshBtn.appendChild(el2("span", `${ROOT_CLASS}__refresh-icon ti ti-refresh`));
         refreshBtn.addEventListener("click", () => {
           refreshBtn.classList.remove("is-spinning");
           void refreshBtn.offsetWidth;
@@ -4364,8 +5187,8 @@ var plugins = (() => {
         });
         refreshBtn.addEventListener("animationend", () => refreshBtn.classList.remove("is-spinning"));
         toolbar.appendChild(refreshBtn);
-        const hideLabel = el("label", `${ROOT_CLASS}__hide-separators`);
-        const hideCb = el("input", `${ROOT_CLASS}__hide-separators-cb`);
+        const hideLabel = el2("label", `${ROOT_CLASS}__hide-separators`);
+        const hideCb = el2("input", `${ROOT_CLASS}__hide-separators-cb`);
         hideCb.type = "checkbox";
         hideCb.checked = this._hideSeparators;
         hideCb.addEventListener("change", (e) => {
@@ -4375,14 +5198,14 @@ var plugins = (() => {
           );
         });
         hideLabel.appendChild(hideCb);
-        hideLabel.appendChild(el("span", `${ROOT_CLASS}__hide-separators-label`, "Hide separators"));
+        hideLabel.appendChild(el2("span", `${ROOT_CLASS}__hide-separators-label`, "Hide separators"));
         toolbar.appendChild(hideLabel);
         body.appendChild(this._renderPresetRow());
         body.appendChild(toolbar);
-        const list = el("div", `${ROOT_CLASS}__list-fill ${ROOT_CLASS}__collection-list`);
+        const list = el2("div", `${ROOT_CLASS}__list-fill ${ROOT_CLASS}__collection-list`);
         const filtered = this._filteredCollections();
         if (!filtered.length) {
-          list.appendChild(el("div", `${ROOT_CLASS}__empty`, this._emptyListMessage()));
+          list.appendChild(el2("div", `${ROOT_CLASS}__empty`, this._emptyListMessage()));
         } else {
           for (const collection of filtered) {
             list.appendChild(this._renderListRow(collection));
@@ -4398,7 +5221,7 @@ var plugins = (() => {
       if (!list) return;
       list.textContent = "";
       if (!filtered.length) {
-        list.appendChild(el("div", `${ROOT_CLASS}__empty`, this._emptyListMessage()));
+        list.appendChild(el2("div", `${ROOT_CLASS}__empty`, this._emptyListMessage()));
         return;
       }
       for (const collection of filtered) {
@@ -4414,11 +5237,11 @@ var plugins = (() => {
       const preview = this._preview;
       const included = !!preview && preview.included.has(guid);
       const isExpanded = !preview && this._colorGuid === guid;
-      const row = el("div", `${ROOT_CLASS}__row${isExpanded ? " is-expanded" : ""}` + (preview ? " is-preview" : "") + (preview && !included ? " is-excluded" : ""));
+      const row = el2("div", `${ROOT_CLASS}__row${isExpanded ? " is-expanded" : ""}` + (preview ? " is-preview" : "") + (preview && !included ? " is-excluded" : ""));
       row.dataset.collGuid = guid;
-      const main = el("div", `${ROOT_CLASS}__row-main`);
+      const main = el2("div", `${ROOT_CLASS}__row-main`);
       if (preview) {
-        const cb = el("input", `${ROOT_CLASS}__row-select`);
+        const cb = el2("input", `${ROOT_CLASS}__row-select`);
         cb.type = "checkbox";
         cb.checked = included;
         cb.setAttribute("aria-label", `Include ${name}`);
@@ -4436,14 +5259,14 @@ var plugins = (() => {
         });
       }
       const iconClass = this._collectionIconClass(collection);
-      const icon = el("span", `${ROOT_CLASS}__row-icon ti ${iconClass}`);
+      const icon = el2("span", `${ROOT_CLASS}__row-icon ti ${iconClass}`);
       icon.setAttribute("aria-hidden", "true");
       if (shown && resolved.sidebarTargets.includes("titleIcon")) icon.style.color = shown;
       main.appendChild(icon);
-      main.appendChild(el("span", `${ROOT_CLASS}__row-name`, name));
+      main.appendChild(el2("span", `${ROOT_CLASS}__row-name`, name));
       if (preview) {
-        const holder = el("span", `${ROOT_CLASS}__row-color ${ROOT_CLASS}__row-color--static`);
-        const dot2 = el("span", `${ROOT_CLASS}__swatch-summary-dot`);
+        const holder = el2("span", `${ROOT_CLASS}__row-color ${ROOT_CLASS}__row-color--static`);
+        const dot2 = el2("span", `${ROOT_CLASS}__swatch-summary-dot`);
         if (shown) dot2.style.background = shown;
         else dot2.classList.add(`${ROOT_CLASS}__swatch-summary-dot--none`);
         holder.appendChild(dot2);
@@ -4451,11 +5274,11 @@ var plugins = (() => {
         row.appendChild(main);
         return row;
       }
-      const colorBtn = el("button", `${ROOT_CLASS}__row-color${isExpanded ? " is-active" : ""}`);
+      const colorBtn = el2("button", `${ROOT_CLASS}__row-color${isExpanded ? " is-active" : ""}`);
       colorBtn.type = "button";
       colorBtn.setAttribute("aria-label", resolved.color ? "Change color" : "Pick color");
       colorBtn.setAttribute("data-tps-tip", resolved.color ? "Change color" : "Pick color");
-      const dot = el("span", `${ROOT_CLASS}__swatch-summary-dot`);
+      const dot = el2("span", `${ROOT_CLASS}__swatch-summary-dot`);
       if (shown) dot.style.background = shown;
       else dot.classList.add(`${ROOT_CLASS}__swatch-summary-dot--none`);
       colorBtn.appendChild(dot);
@@ -4502,7 +5325,7 @@ var plugins = (() => {
     }
     /** @param {string} guid @param {{color: string|null, applyTo: ApplyTo, isOverride: boolean}} resolved */
     _renderExpandedColorField(guid, resolved) {
-      const wrap = el("div", `${ROOT_CLASS}__expanded`);
+      const wrap = el2("div", `${ROOT_CLASS}__expanded`);
       wrap.addEventListener("click", (e) => e.stopPropagation());
       wrap.addEventListener("keydown", (e) => e.stopPropagation());
       wrap.appendChild(this._renderColorField(guid, resolved));
@@ -4517,12 +5340,12 @@ var plugins = (() => {
     _appendRowOverrideToggles(parent, guid, resolved) {
       for (const opt of APPLY_TO_OPTIONS) {
         const isActive = resolved.isOverride && resolved.applyTo === opt.val;
-        const btn = el("button", `${ROOT_CLASS}__override-toggle ${isActive ? "is-active" : ""}`);
+        const btn = el2("button", `${ROOT_CLASS}__override-toggle ${isActive ? "is-active" : ""}`);
         btn.type = "button";
         btn.setAttribute("aria-pressed", String(isActive));
         btn.setAttribute("aria-label", opt.label);
         btn.setAttribute("data-tps-tip", isActive ? `${opt.label} override active \u2014 click to clear` : `Override default to: ${opt.label}`);
-        btn.appendChild(el("span", `ti ${opt.icon}`));
+        btn.appendChild(el2("span", `ti ${opt.icon}`));
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
           this._setApplyTo(guid, isActive ? null : opt.val);
@@ -4530,12 +5353,12 @@ var plugins = (() => {
         parent.appendChild(btn);
       }
       const isTintOpen = this._tintGuid === guid;
-      const tintBtn = el("button", `${ROOT_CLASS}__override-toggle ${isTintOpen ? "is-active" : ""}`);
+      const tintBtn = el2("button", `${ROOT_CLASS}__override-toggle ${isTintOpen ? "is-active" : ""}`);
       tintBtn.type = "button";
       tintBtn.setAttribute("aria-pressed", String(isTintOpen));
       tintBtn.setAttribute("aria-label", "Tint variation");
       tintBtn.setAttribute("data-tps-tip", isTintOpen ? "Hide tint variation" : "Show tint variation");
-      tintBtn.appendChild(el("span", "ti ti-brush"));
+      tintBtn.appendChild(el2("span", "ti ti-brush"));
       tintBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         this._toggleTint(guid);
@@ -4544,7 +5367,7 @@ var plugins = (() => {
     }
     /** @param {string} guid @param {{color: string|null}} resolved */
     _renderColorField(guid, resolved) {
-      const wrap = el("div", `${ROOT_CLASS}__color-field-wrap`);
+      const wrap = el2("div", `${ROOT_CLASS}__color-field-wrap`);
       wrap.appendChild(colorField({
         value: this._colorFieldValue(resolved.color),
         featured: [{ label: "Accent", token: "--color-primary-500" }],
@@ -4645,18 +5468,18 @@ var plugins = (() => {
         return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
       }, "lum");
       const surfaces = [document.querySelector(".sidebar"), document.body, document.documentElement];
-      for (const el2 of surfaces) {
-        if (!el2) continue;
+      for (const el3 of surfaces) {
+        if (!el3) continue;
         try {
-          const bg = lum(getComputedStyle(el2).backgroundColor);
+          const bg = lum(getComputedStyle(el3).backgroundColor);
           if (bg !== null) return bg < 0.5;
         } catch {
         }
       }
-      for (const el2 of [document.body, document.documentElement]) {
-        if (!el2) continue;
+      for (const el3 of [document.body, document.documentElement]) {
+        if (!el3) continue;
         try {
-          const tx = lum(getComputedStyle(el2).color);
+          const tx = lum(getComputedStyle(el3).color);
           if (tx !== null) return tx > 0.5;
         } catch {
         }
@@ -4689,8 +5512,8 @@ var plugins = (() => {
     /** @param {string} guid */
     _renderEntryVariations(guid) {
       const raw = this._getRaw(guid);
-      const wrap = el("div", `${ROOT_CLASS}__entry-variation`);
-      wrap.appendChild(el("div", `${ROOT_CLASS}__entry-variation-label`, "Tint variation (overrides global)"));
+      const wrap = el2("div", `${ROOT_CLASS}__entry-variation`);
+      wrap.appendChild(el2("div", `${ROOT_CLASS}__entry-variation-label`, "Tint variation (overrides global)"));
       const titleV = raw.titleVariationOverride || this._settings.titleVariation;
       const pagesV = raw.pagesVariationOverride || this._settings.pagesVariation;
       const live = /* @__PURE__ */ __name((key) => (
@@ -4727,17 +5550,17 @@ var plugins = (() => {
     }
     /** @param {'light' | 'dark'} theme @param {string} hex @param {string} guid */
     _buildPreview(theme, hex, guid) {
-      const tile = el("div", `${ROOT_CLASS}__preview ${ROOT_CLASS}__preview--${theme}`);
-      tile.appendChild(el("div", `${ROOT_CLASS}__preview-head`, theme === "light" ? "Light" : "Dark"));
-      const item = el("div", `${ROOT_CLASS}__preview-item`);
+      const tile = el2("div", `${ROOT_CLASS}__preview ${ROOT_CLASS}__preview--${theme}`);
+      tile.appendChild(el2("div", `${ROOT_CLASS}__preview-head`, theme === "light" ? "Light" : "Dark"));
+      const item = el2("div", `${ROOT_CLASS}__preview-item`);
       item.dataset.theme = theme;
       const collection = this._collections.find((c) => c.getGuid() === guid);
       const iconClass = collection ? this._collectionIconClass(collection) : "ti-folder";
       const name = collection && typeof collection.getName === "function" ? collection.getName() : "Collection";
       item.style.color = hex;
       item.style.background = withAlpha(hex, theme === "light" ? 0.14 : 0.2);
-      item.appendChild(el("span", `${ROOT_CLASS}__preview-icon ti ${iconClass}`));
-      item.appendChild(el("span", `${ROOT_CLASS}__preview-name`, name));
+      item.appendChild(el2("span", `${ROOT_CLASS}__preview-icon ti ${iconClass}`));
+      item.appendChild(el2("span", `${ROOT_CLASS}__preview-name`, name));
       tile.appendChild(item);
       return tile;
     }
@@ -6145,13 +6968,13 @@ var plugins = (() => {
 		`);
     }
   };
-  function el(tag, cls = "", text = "") {
+  function el2(tag, cls = "", text = "") {
     const node = document.createElement(tag);
     if (cls) node.className = cls;
     if (text) node.textContent = text;
     return node;
   }
-  __name(el, "el");
+  __name(el2, "el");
   function clampNum(v, min, max, fallback) {
     const n = typeof v === "number" ? v : Number(v);
     if (!Number.isFinite(n)) return fallback;
