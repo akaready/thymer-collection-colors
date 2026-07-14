@@ -3211,11 +3211,16 @@ ${report}
     if (!plugin) return null;
     if (typeof plugin.saveConfiguration === "function") return plugin;
     try {
-      const guid = typeof plugin.getGuid === "function" ? plugin.getGuid() : null;
       const data = plugin.data;
+      const guid = typeof plugin.getGuid === "function" && plugin.getGuid() || plugin.collection && typeof plugin.collection.getGuid === "function" && plugin.collection.getGuid() || null;
       if (guid && data && typeof data.getPluginByGuid === "function") {
         const byGuid = data.getPluginByGuid(guid);
         if (byGuid && typeof byGuid.saveConfiguration === "function") return byGuid;
+      }
+      if (guid && data && typeof data.getAllCollections === "function") {
+        const all = await data.getAllCollections();
+        const found = (all || []).find((c) => c && typeof c.getGuid === "function" && c.getGuid() === guid);
+        if (found && typeof found.saveConfiguration === "function") return found;
       }
       if (data && typeof data.getAllGlobalPlugins === "function") {
         const all = await data.getAllGlobalPlugins();
