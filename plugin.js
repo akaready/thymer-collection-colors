@@ -521,6 +521,19 @@ var plugins = (() => {
   opacity: 1;
 }
 
+/* Device cannot persist settings locally \u2014 the store is falling back to the
+   synced config so nothing is lost. Warning tone, full-perimeter border. */
+.tps-scope-pill[data-local-unavailable="true"] {
+  color: var(--enum-red-fg, #d64545);
+  border-color: var(--enum-red-border, rgba(214, 69, 69, 0.5));
+  background: var(--enum-red-bg, rgba(214, 69, 69, 0.12));
+}
+
+.tps-scope-pill[data-local-unavailable="true"] .tps-scope-dot {
+  background: var(--enum-red-fg, #d64545);
+  opacity: 1;
+}
+
 .tps-scope-btn {
   display: inline-flex;
   align-items: center;
@@ -2247,6 +2260,23 @@ ${report}
   }
   __name(scopeSvgIcon, "scopeSvgIcon");
   function scopeCluster(scope) {
+    if (scope.localUnavailable) {
+      return h(
+        "span",
+        { class: "tps-scope" },
+        h(
+          "span",
+          {
+            class: "tps-scope-pill tooltip",
+            "data-local-unavailable": "true",
+            "data-tooltip": "This device can't store settings locally, so they're saved to all devices instead.",
+            "data-tooltip-dir": "top"
+          },
+          h("span", { class: "tps-scope-dot", "aria-hidden": "true" }),
+          "All devices (no local storage)"
+        )
+      );
+    }
     const pill = h(
       "span",
       {
@@ -3328,18 +3358,64 @@ ${report}
     let current = {};
     let diverged = false;
     let pushInFlight = false;
-    const workspaceGuid = /* @__PURE__ */ __name(() => {
+    let localUnavailable = false;
+    let fallbackTimer = null;
+    const WS_FALLBACK = "default";
+    const SCOPE_FALLBACK = "collection";
+    let cachedWs = "";
+    let cachedScope = "";
+    const resolveWs = /* @__PURE__ */ __name(() => {
+      if (cachedWs) return cachedWs;
       try {
         const guid = plugin.getWorkspaceGuid?.();
-        if (guid) return guid;
+        if (guid) cachedWs = String(guid);
       } catch {
       }
-      return "default";
-    }, "workspaceGuid");
-    const storageKey = /* @__PURE__ */ __name(() => {
-      const scope = scopeKey ? `/${scopeKey()}` : "";
-      return `${slug}/${workspaceGuid()}${scope}/settings`;
-    }, "storageKey");
+      return cachedWs;
+    }, "resolveWs");
+    const resolveScope = /* @__PURE__ */ __name(() => {
+      if (!scopeKey) return "";
+      if (cachedScope) return cachedScope;
+      try {
+        const s = scopeKey();
+        if (s) cachedScope = String(s);
+      } catch {
+      }
+      return cachedScope;
+    }, "resolveScope");
+    const keyFor = /* @__PURE__ */ __name((ws, scope) => {
+      const seg = scopeKey ? `/${scope || SCOPE_FALLBACK}` : "";
+      return `${slug}/${ws || WS_FALLBACK}${seg}/settings`;
+    }, "keyFor");
+    const storageKey = /* @__PURE__ */ __name(() => keyFor(resolveWs(), resolveScope()), "storageKey");
+    const candidateKeys = /* @__PURE__ */ __name(() => {
+      const ws = resolveWs();
+      const scope = resolveScope();
+      const keys = [];
+      const push = /* @__PURE__ */ __name((k) => {
+        if (!keys.includes(k)) keys.push(k);
+      }, "push");
+      push(keyFor(ws, scope));
+      if (ws) push(keyFor("", scope));
+      if (scopeKey && scope) push(keyFor(ws, ""));
+      if (ws && scopeKey && scope) push(keyFor("", ""));
+      return keys;
+    }, "candidateKeys");
+    const orphanKey = /* @__PURE__ */ __name(() => {
+      if (resolveWs()) return null;
+      const esc = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`^${esc}/[^/]+${scopeKey ? "/[^/]+" : ""}/settings$`);
+      const hits = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (typeof k === "string" && re.test(k)) hits.push(k);
+        }
+      } catch {
+        return null;
+      }
+      return hits.length === 1 ? hits[0] : null;
+    }, "orphanKey");
     const readCustom = /* @__PURE__ */ __name(() => {
       try {
         const conf = plugin.getConfiguration?.();
@@ -3353,16 +3429,72 @@ ${report}
       }
     }, "readCustom");
     const readLocalRaw = /* @__PURE__ */ __name(() => {
-      try {
-        const raw = localStorage.getItem(storageKey());
-        if (raw === null) return null;
-        const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === "object" ? parsed : {};
-      } catch {
-        return null;
+      const keys = candidateKeys();
+      const canonical = keys[0];
+      const orphan = orphanKey();
+      if (orphan && !keys.includes(orphan)) keys.push(orphan);
+      for (const k of keys) {
+        let raw = null;
+        try {
+          raw = localStorage.getItem(k);
+        } catch {
+          return null;
+        }
+        if (raw === null) continue;
+        if (k !== canonical && resolveWs()) {
+          try {
+            localStorage.setItem(canonical, raw);
+            localStorage.removeItem(k);
+          } catch {
+          }
+        }
+        try {
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === "object" ? parsed : {};
+        } catch {
+          return null;
+        }
       }
+      return null;
     }, "readLocalRaw");
+    const writeLocal = /* @__PURE__ */ __name((value) => {
+      try {
+        const k = storageKey();
+        localStorage.setItem(k, value);
+        if (localStorage.getItem(k) !== value) throw new Error("localStorage read-back mismatch");
+        localUnavailable = false;
+        return true;
+      } catch {
+        localUnavailable = true;
+        return false;
+      }
+    }, "writeLocal");
+    const removeLocal = /* @__PURE__ */ __name((k = storageKey()) => {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+      }
+    }, "removeLocal");
     const normalizedStringify = /* @__PURE__ */ __name((raw) => JSON.stringify(normalize(raw)), "normalizedStringify");
+    const FALLBACK_DELAY_MS = 2e3;
+    const cancelFallback = /* @__PURE__ */ __name(() => {
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+    }, "cancelFallback");
+    const flushFallback = /* @__PURE__ */ __name(async () => {
+      cancelFallback();
+      if (!localUnavailable || !diverged) return;
+      await store.pushToAll();
+    }, "flushFallback");
+    const scheduleFallback = /* @__PURE__ */ __name(() => {
+      cancelFallback();
+      fallbackTimer = setTimeout(() => {
+        fallbackTimer = null;
+        void flushFallback();
+      }, FALLBACK_DELAY_MS);
+    }, "scheduleFallback");
     const store = {
       /** Read-only: never writes either store. */
       load() {
@@ -3382,27 +3514,31 @@ ${report}
       isDiverged() {
         return diverged;
       },
+      /** True when this device cannot persist settings locally (see `writeLocal`). */
+      isLocalUnavailable() {
+        return localUnavailable;
+      },
       /**
        * Every edit is device-local. First edit snapshots the FULL settings
-       * (inherited values of untouched keys survive). localStorage throwing
-       * (private mode) leaves the edit in memory for the session — still
-       * reported diverged so the pill/push UI works, and push still syncs.
+       * (inherited values of untouched keys survive).
+       *
+       * If the local write cannot be made to stick (blocked / quota / no-op
+       * localStorage — a Linux-Electron report was losing 100% of settings on
+       * restart this way, silently), fall back to persisting into the SYNCED
+       * config, which is the only other durable store Thymer gives us. That
+       * device's settings then apply to all devices — strictly better than
+       * discarding them, and the panel says so.
        */
       update(patch) {
         current = normalize({ ...current, ...patch });
         if (normalizedStringify(readSyncedBlob(readCustom())) === JSON.stringify(current)) {
-          try {
-            localStorage.removeItem(storageKey());
-          } catch {
-          }
+          removeLocal();
           diverged = false;
+          cancelFallback();
           return { settings: current, diverged };
         }
         diverged = true;
-        try {
-          localStorage.setItem(storageKey(), JSON.stringify(current));
-        } catch {
-        }
+        if (!writeLocal(JSON.stringify(current))) scheduleFallback();
         return { settings: current, diverged };
       },
       /**
@@ -3426,10 +3562,7 @@ ${report}
           if (typeof conf.name !== "string" || !conf.name.trim()) return false;
           const custom = conf.custom && typeof conf.custom === "object" ? conf.custom : {};
           const subset = pickSyncedSubset(normalize(current));
-          try {
-            localStorage.removeItem(storageKey());
-          } catch {
-          }
+          removeLocal();
           diverged = false;
           try {
             if (normalizedStringify(readSyncedBlob(
@@ -3439,10 +3572,7 @@ ${report}
               await api.saveConfiguration(configWithPluginVersion(conf, { [key]: subset }, version));
             }
           } catch (err) {
-            try {
-              localStorage.setItem(storageKey(), JSON.stringify(current));
-            } catch {
-            }
+            writeLocal(JSON.stringify(current));
             diverged = true;
             throw err;
           }
@@ -3455,10 +3585,8 @@ ${report}
       },
       /** The ↺ "Discard device changes": drop local, re-adopt synced. */
       discardLocal() {
-        try {
-          localStorage.removeItem(storageKey());
-        } catch {
-        }
+        cancelFallback();
+        removeLocal();
         current = normalize(readSyncedBlob(readCustom()) || {});
         diverged = false;
         return current;
@@ -3473,10 +3601,8 @@ ${report}
         return diverged ? { [key]: pickSyncedSubset(normalize(current)) } : {};
       },
       markFlushed() {
-        try {
-          localStorage.removeItem(storageKey());
-        } catch {
-        }
+        cancelFallback();
+        removeLocal();
         diverged = false;
       },
       /**
@@ -3488,6 +3614,17 @@ ${report}
        */
       attachLifecycle({ onRemoteChange } = {}) {
         const handlerIds = [];
+        const onHide = /* @__PURE__ */ __name(() => {
+          if (document.visibilityState === "hidden") void flushFallback();
+        }, "onHide");
+        const onPageHide = /* @__PURE__ */ __name(() => {
+          void flushFallback();
+        }, "onPageHide");
+        try {
+          document.addEventListener("visibilitychange", onHide);
+          window.addEventListener("pagehide", onPageHide);
+        } catch {
+        }
         try {
           const id = plugin.events?.on?.("global-plugin.updated", (event) => {
             try {
@@ -3507,6 +3644,12 @@ ${report}
         } catch {
         }
         return () => {
+          cancelFallback();
+          try {
+            document.removeEventListener("visibilitychange", onHide);
+            window.removeEventListener("pagehide", onPageHide);
+          } catch {
+          }
           for (const id of handlerIds) {
             try {
               plugin.events?.off?.(id);
@@ -3521,7 +3664,7 @@ ${report}
   __name(createSettingsStore, "createSettingsStore");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.4.0";
+  var PLUGIN_VERSION = "1.4.1";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
@@ -4874,6 +5017,7 @@ ${report}
     _scopeArgs() {
       return {
         diverged: this._settingsStore.isDiverged(),
+        localUnavailable: !!this._settingsStore.isLocalUnavailable(),
         onPush: /* @__PURE__ */ __name(() => {
           void this._settingsStore.pushToAll().then((ok) => {
             if (!ok) return;
