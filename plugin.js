@@ -3481,25 +3481,25 @@ ${report}
       }
     }, "removeLocal");
     const normalizedStringify = /* @__PURE__ */ __name((raw) => JSON.stringify(normalize(raw)), "normalizedStringify");
-    const FALLBACK_DELAY_MS = 2e3;
-    const cancelFallback = /* @__PURE__ */ __name(() => {
+    const FLUSH_DELAY_MS = 4e3;
+    const cancelFlush = /* @__PURE__ */ __name(() => {
       if (fallbackTimer) {
         clearTimeout(fallbackTimer);
         fallbackTimer = null;
       }
-    }, "cancelFallback");
-    const flushFallback = /* @__PURE__ */ __name(async () => {
-      cancelFallback();
-      if (!localUnavailable || !diverged) return;
+    }, "cancelFlush");
+    const flushToSynced = /* @__PURE__ */ __name(async () => {
+      cancelFlush();
+      if (!diverged) return;
       await store.pushToAll();
-    }, "flushFallback");
-    const scheduleFallback = /* @__PURE__ */ __name(() => {
-      cancelFallback();
+    }, "flushToSynced");
+    const scheduleFlush = /* @__PURE__ */ __name(() => {
+      cancelFlush();
       fallbackTimer = setTimeout(() => {
         fallbackTimer = null;
-        void flushFallback();
-      }, FALLBACK_DELAY_MS);
-    }, "scheduleFallback");
+        void flushToSynced();
+      }, FLUSH_DELAY_MS);
+    }, "scheduleFlush");
     const store = {
       /** Read-only: never writes either store. */
       load() {
@@ -3539,18 +3539,21 @@ ${report}
         if (normalizedStringify(readSyncedBlob(readCustom())) === JSON.stringify(current)) {
           removeLocal();
           diverged = false;
-          cancelFallback();
+          cancelFlush();
           return { settings: current, diverged };
         }
         diverged = true;
-        if (!writeLocal(JSON.stringify(current))) scheduleFallback();
+        writeLocal(JSON.stringify(current));
+        scheduleFlush();
         return { settings: current, diverged };
       },
       /**
-       * The explicit ↑ "Apply to all devices": ONE saveConfiguration (which
-       * reloads the plugin), then the local blob is cleared so this device
-       * goes back to following the synced config. Resolves true when the
-       * settings are known to be in synced config (pushed or already equal).
+       * Persist the current settings to the durable synced config: ONE
+       * saveConfiguration (which reloads the plugin), then the local blob is
+       * cleared so this device follows the synced config. Now the shared primitive
+       * for BOTH the automatic debounced/boundary flush (`flushToSynced`) and the
+       * explicit ↑ "Apply to all devices" button. Resolves true when the settings
+       * are known to be in synced config (saved or already equal).
        */
       async pushToAll() {
         if (pushInFlight) return false;
@@ -3590,7 +3593,7 @@ ${report}
       },
       /** The ↺ "Discard device changes": drop local, re-adopt synced. */
       discardLocal() {
-        cancelFallback();
+        cancelFlush();
         removeLocal();
         current = normalize(readSyncedBlob(readCustom()) || {});
         diverged = false;
@@ -3606,7 +3609,7 @@ ${report}
         return diverged ? { [key]: pickSyncedSubset(normalize(current)) } : {};
       },
       markFlushed() {
-        cancelFallback();
+        cancelFlush();
         removeLocal();
         diverged = false;
       },
@@ -3620,10 +3623,10 @@ ${report}
       attachLifecycle({ onRemoteChange } = {}) {
         const handlerIds = [];
         const onHide = /* @__PURE__ */ __name(() => {
-          if (document.visibilityState === "hidden") void flushFallback();
+          if (document.visibilityState === "hidden") void flushToSynced();
         }, "onHide");
         const onPageHide = /* @__PURE__ */ __name(() => {
-          void flushFallback();
+          void flushToSynced();
         }, "onPageHide");
         try {
           document.addEventListener("visibilitychange", onHide);
@@ -3649,7 +3652,7 @@ ${report}
         } catch {
         }
         return () => {
-          cancelFallback();
+          cancelFlush();
           try {
             document.removeEventListener("visibilitychange", onHide);
             window.removeEventListener("pagehide", onPageHide);
@@ -3669,7 +3672,7 @@ ${report}
   __name(createSettingsStore, "createSettingsStore");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.4.1";
+  var PLUGIN_VERSION = "1.4.2";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
