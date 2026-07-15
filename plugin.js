@@ -510,27 +510,17 @@ var plugins = (() => {
   opacity: 0.55;
 }
 
+/* "This device" is a normal, saved state (per-device settings), NOT a warning \u2014
+   so it wears the calm brand accent, not an alarming amber. Full-perimeter
+   border, never a single-edge accent. */
 .tps-scope-pill[data-diverged="true"] {
-  color: var(--enum-orange-fg, #d98324);
-  border-color: var(--enum-orange-border, rgba(217, 131, 36, 0.45));
-  background: var(--enum-orange-bg, rgba(217, 131, 36, 0.12));
+  color: var(--tps-accent);
+  border-color: color-mix(in srgb, var(--tps-accent) 45%, transparent);
+  background: var(--tps-accent-soft);
 }
 
 .tps-scope-pill[data-diverged="true"] .tps-scope-dot {
-  background: var(--enum-orange-fg, #d98324);
-  opacity: 1;
-}
-
-/* Device cannot persist settings locally \u2014 the store is falling back to the
-   synced config so nothing is lost. Warning tone, full-perimeter border. */
-.tps-scope-pill[data-local-unavailable="true"] {
-  color: var(--enum-red-fg, #d64545);
-  border-color: var(--enum-red-border, rgba(214, 69, 69, 0.5));
-  background: var(--enum-red-bg, rgba(214, 69, 69, 0.12));
-}
-
-.tps-scope-pill[data-local-unavailable="true"] .tps-scope-dot {
-  background: var(--enum-red-fg, #d64545);
+  background: var(--tps-accent);
   opacity: 1;
 }
 
@@ -2260,29 +2250,12 @@ ${report}
   }
   __name(scopeSvgIcon, "scopeSvgIcon");
   function scopeCluster(scope) {
-    if (scope.localUnavailable) {
-      return h(
-        "span",
-        { class: "tps-scope" },
-        h(
-          "span",
-          {
-            class: "tps-scope-pill tooltip",
-            "data-local-unavailable": "true",
-            "data-tooltip": "This device can't store settings locally, so they're saved to all devices instead.",
-            "data-tooltip-dir": "top"
-          },
-          h("span", { class: "tps-scope-dot", "aria-hidden": "true" }),
-          "All devices (no local storage)"
-        )
-      );
-    }
     const pill = h(
       "span",
       {
         class: "tps-scope-pill tooltip",
         "data-diverged": String(!!scope.diverged),
-        "data-tooltip": scope.diverged ? "These settings currently apply to this device only" : "Settings are synced \u2014 changes here start as this-device-only",
+        "data-tooltip": scope.diverged ? "Custom settings for this device, saved automatically. Your other devices are unaffected." : "Using your shared defaults \u2014 the same on all your devices. Edits here apply to this device only.",
         "data-tooltip-dir": "top"
       },
       h("span", { class: "tps-scope-dot", "aria-hidden": "true" }),
@@ -2294,9 +2267,9 @@ ${report}
     const push = h("button", {
       type: "button",
       class: "tps-scope-btn tps-scope-btn--push tooltip",
-      "data-tooltip": "Apply these settings to all devices",
+      "data-tooltip": "Copy these settings to all my devices",
       "data-tooltip-dir": "top",
-      "aria-label": "Apply these settings to all devices",
+      "aria-label": "Copy these settings to all my devices",
       onClick: /* @__PURE__ */ __name((e) => {
         const btn = (
           /** @type {HTMLButtonElement} */
@@ -2315,9 +2288,9 @@ ${report}
     const discard = h("button", {
       type: "button",
       class: "tps-scope-btn tps-scope-btn--discard tooltip",
-      "data-tooltip": "Discard device changes \u2014 revert to synced settings",
+      "data-tooltip": "Reset this device to your shared defaults",
       "data-tooltip-dir": "top",
-      "aria-label": "Discard device changes",
+      "aria-label": "Reset this device to your shared defaults",
       onClick: /* @__PURE__ */ __name((e) => {
         const btn = (
           /** @type {HTMLButtonElement} */
@@ -2325,11 +2298,11 @@ ${report}
         );
         if (btn.getAttribute("data-armed") !== "true") {
           btn.setAttribute("data-armed", "true");
-          btn.setAttribute("data-tooltip", "Tap again to discard device changes");
+          btn.setAttribute("data-tooltip", "Tap again to reset this device");
           clearTimeout(disarmTimer);
           disarmTimer = window.setTimeout(() => {
             btn.removeAttribute("data-armed");
-            btn.setAttribute("data-tooltip", "Discard device changes \u2014 revert to synced settings");
+            btn.setAttribute("data-tooltip", "Reset this device to your shared defaults");
           }, 3e3);
           return;
         }
@@ -3358,69 +3331,44 @@ ${report}
     readSynced = null,
     pickSynced = null
   }) {
-    const readSyncedBlob = readSynced || ((custom) => custom?.[key]);
+    const readBag = readSynced || ((custom) => custom?.[key]);
     const pickSyncedSubset = pickSynced || ((s) => s);
     let current = {};
-    let diverged = false;
-    let pushInFlight = false;
-    let localUnavailable = false;
-    let fallbackTimer = null;
-    const WS_FALLBACK = "default";
-    const SCOPE_FALLBACK = "collection";
-    let cachedWs = "";
-    let cachedScope = "";
-    const resolveWs = /* @__PURE__ */ __name(() => {
-      if (cachedWs) return cachedWs;
-      try {
-        const guid = plugin.getWorkspaceGuid?.();
-        if (guid) cachedWs = String(guid);
-      } catch {
+    let dirty = false;
+    let saveInFlight = false;
+    let flushTimer = null;
+    const fnv1a = /* @__PURE__ */ __name((s) => {
+      let h2 = 2166136261;
+      for (let i = 0; i < s.length; i++) {
+        h2 ^= s.charCodeAt(i);
+        h2 = Math.imul(h2, 16777619);
       }
-      return cachedWs;
-    }, "resolveWs");
-    const resolveScope = /* @__PURE__ */ __name(() => {
-      if (!scopeKey) return "";
-      if (cachedScope) return cachedScope;
+      return (h2 >>> 0).toString(36);
+    }, "fnv1a");
+    const computeDeviceKey = /* @__PURE__ */ __name(() => {
       try {
-        const s = scopeKey();
-        if (s) cachedScope = String(s);
+        const n = (
+          /** @type {any} */
+          typeof navigator !== "undefined" ? navigator : {}
+        );
+        const ua = String(n.userAgent || "");
+        const isApp = /electron/i.test(ua);
+        const os = /android/i.test(ua) ? "android" : /iphone|ipad|ios/i.test(ua) ? "ios" : /linux/i.test(ua) ? "linux" : /mac|darwin/i.test(ua) ? "mac" : /win/i.test(ua) ? "win" : "x";
+        return `${isApp ? "app" : "web"}-${os}-${fnv1a(`${ua}|${n.platform || ""}|${n.language || ""}`)}`;
       } catch {
+        return "device-x";
       }
-      return cachedScope;
-    }, "resolveScope");
-    const keyFor = /* @__PURE__ */ __name((ws, scope) => {
-      const seg = scopeKey ? `/${scope || SCOPE_FALLBACK}` : "";
-      return `${slug}/${ws || WS_FALLBACK}${seg}/settings`;
-    }, "keyFor");
-    const storageKey = /* @__PURE__ */ __name(() => keyFor(resolveWs(), resolveScope()), "storageKey");
-    const candidateKeys = /* @__PURE__ */ __name(() => {
-      const ws = resolveWs();
-      const scope = resolveScope();
-      const keys = [];
-      const push = /* @__PURE__ */ __name((k) => {
-        if (!keys.includes(k)) keys.push(k);
-      }, "push");
-      push(keyFor(ws, scope));
-      if (ws) push(keyFor("", scope));
-      if (scopeKey && scope) push(keyFor(ws, ""));
-      if (ws && scopeKey && scope) push(keyFor("", ""));
-      return keys;
-    }, "candidateKeys");
-    const orphanKey = /* @__PURE__ */ __name(() => {
-      if (resolveWs()) return null;
-      const esc = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const re = new RegExp(`^${esc}/[^/]+${scopeKey ? "/[^/]+" : ""}/settings$`);
-      const hits = [];
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (typeof k === "string" && re.test(k)) hits.push(k);
-        }
-      } catch {
-        return null;
+    }, "computeDeviceKey");
+    const deviceKey = computeDeviceKey();
+    const asMap = /* @__PURE__ */ __name((bag) => {
+      if (bag && typeof bag === "object" && bag.byDevice && typeof bag.byDevice === "object") {
+        return { shared: bag.shared, byDevice: { ...bag.byDevice } };
       }
-      return hits.length === 1 ? hits[0] : null;
-    }, "orphanKey");
+      if (bag && typeof bag === "object" && Object.keys(bag).length) {
+        return { shared: bag, byDevice: {} };
+      }
+      return { shared: void 0, byDevice: {} };
+    }, "asMap");
     const readCustom = /* @__PURE__ */ __name(() => {
       try {
         const conf = plugin.getConfiguration?.();
@@ -3433,200 +3381,232 @@ ${report}
         return {};
       }
     }, "readCustom");
-    const readLocalRaw = /* @__PURE__ */ __name(() => {
-      const keys = candidateKeys();
-      const canonical = keys[0];
-      const orphan = orphanKey();
-      if (orphan && !keys.includes(orphan)) keys.push(orphan);
-      for (const k of keys) {
-        let raw = null;
-        try {
-          raw = localStorage.getItem(k);
-        } catch {
-          return null;
-        }
-        if (raw === null) continue;
-        if (k !== canonical && resolveWs()) {
-          try {
-            localStorage.setItem(canonical, raw);
-            localStorage.removeItem(k);
-          } catch {
-          }
-        }
-        try {
-          const parsed = JSON.parse(raw);
-          return parsed && typeof parsed === "object" ? parsed : {};
-        } catch {
-          return null;
-        }
-      }
-      return null;
-    }, "readLocalRaw");
-    const writeLocal = /* @__PURE__ */ __name((value) => {
+    const readSyncedDevice = /* @__PURE__ */ __name((custom) => {
+      const m = asMap(readBag(custom));
+      if (Object.prototype.hasOwnProperty.call(m.byDevice, deviceKey)) return m.byDevice[deviceKey];
+      return m.shared ?? null;
+    }, "readSyncedDevice");
+    const prune = /* @__PURE__ */ __name((m) => {
+      const out = { byDevice: m.byDevice };
+      if (m.shared !== void 0) out.shared = m.shared;
+      return out;
+    }, "prune");
+    const buildDevicePatch = /* @__PURE__ */ __name((custom, subset) => {
+      const m = asMap(readBag(custom));
+      m.byDevice[deviceKey] = subset;
+      return { [key]: prune(m) };
+    }, "buildDevicePatch");
+    const buildAllPatch = /* @__PURE__ */ __name((custom, subset) => {
+      const m = asMap(readBag(custom));
+      m.shared = subset;
+      for (const k of Object.keys(m.byDevice)) m.byDevice[k] = subset;
+      m.byDevice[deviceKey] = subset;
+      return { [key]: prune(m) };
+    }, "buildAllPatch");
+    const buildResetPatch = /* @__PURE__ */ __name((custom) => {
+      const m = asMap(readBag(custom));
+      delete m.byDevice[deviceKey];
+      return { [key]: prune(m) };
+    }, "buildResetPatch");
+    const normalizedStringify = /* @__PURE__ */ __name((raw) => JSON.stringify(normalize(raw)), "normalizedStringify");
+    const workspaceGuid = /* @__PURE__ */ __name(() => {
       try {
-        const k = storageKey();
-        localStorage.setItem(k, value);
-        if (localStorage.getItem(k) !== value) throw new Error("localStorage read-back mismatch");
-        localUnavailable = false;
+        return String(plugin.getWorkspaceGuid?.() || "") || "default";
+      } catch {
+        return "default";
+      }
+    }, "workspaceGuid");
+    const scope = /* @__PURE__ */ __name(() => {
+      if (!scopeKey) return "";
+      try {
+        return `/${String(scopeKey() || "scope")}`;
+      } catch {
+        return "/scope";
+      }
+    }, "scope");
+    const cacheKey = /* @__PURE__ */ __name(() => `${slug}/${workspaceGuid()}${scope()}/${deviceKey}/cache`, "cacheKey");
+    const readCache = /* @__PURE__ */ __name(() => {
+      try {
+        const raw = localStorage.getItem(cacheKey());
+        if (raw === null) return null;
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch {
+        return null;
+      }
+    }, "readCache");
+    const writeCache = /* @__PURE__ */ __name((value) => {
+      try {
+        localStorage.setItem(cacheKey(), value);
+      } catch {
+      }
+    }, "writeCache");
+    const clearCache = /* @__PURE__ */ __name(() => {
+      try {
+        localStorage.removeItem(cacheKey());
+      } catch {
+      }
+    }, "clearCache");
+    const saveCustom = /* @__PURE__ */ __name(async (buildPatch) => {
+      if (saveInFlight) return false;
+      saveInFlight = true;
+      try {
+        const api = await resolveConfigApi(plugin);
+        if (!api || typeof api.saveConfiguration !== "function") return false;
+        let conf = {};
+        try {
+          conf = api.getConfiguration?.() || plugin.getConfiguration?.() || {};
+        } catch {
+          return false;
+        }
+        if (typeof conf.name !== "string" || !conf.name.trim()) return false;
+        const custom = conf.custom && typeof conf.custom === "object" ? conf.custom : {};
+        const patch = buildPatch(custom);
+        if (bagConverged(custom[key], patch[key])) return true;
+        await api.saveConfiguration(configWithPluginVersion(conf, patch, version));
         return true;
       } catch {
-        localUnavailable = true;
         return false;
+      } finally {
+        saveInFlight = false;
       }
-    }, "writeLocal");
-    const removeLocal = /* @__PURE__ */ __name((k = storageKey()) => {
-      try {
-        localStorage.removeItem(k);
-      } catch {
+    }, "saveCustom");
+    const bagConverged = /* @__PURE__ */ __name((a, b) => {
+      const ma = asMap(a);
+      const mb = asMap(b);
+      if (normalizedStringify(ma.shared || {}) !== normalizedStringify(mb.shared || {})) return false;
+      const keys = /* @__PURE__ */ new Set([...Object.keys(ma.byDevice), ...Object.keys(mb.byDevice)]);
+      for (const k of keys) {
+        if (normalizedStringify(ma.byDevice[k] || {}) !== normalizedStringify(mb.byDevice[k] || {})) return false;
       }
-    }, "removeLocal");
-    const normalizedStringify = /* @__PURE__ */ __name((raw) => JSON.stringify(normalize(raw)), "normalizedStringify");
+      return true;
+    }, "bagConverged");
     const FLUSH_DELAY_MS = 4e3;
     const cancelFlush = /* @__PURE__ */ __name(() => {
-      if (fallbackTimer) {
-        clearTimeout(fallbackTimer);
-        fallbackTimer = null;
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
       }
     }, "cancelFlush");
-    const flushToSynced = /* @__PURE__ */ __name(async () => {
+    const flushDevice = /* @__PURE__ */ __name(async () => {
       cancelFlush();
-      if (!diverged) return;
-      await store.pushToAll();
-    }, "flushToSynced");
+      if (!dirty) return;
+      const subset = pickSyncedSubset(normalize(current));
+      const ok = await saveCustom((custom) => buildDevicePatch(custom, subset));
+      if (ok) {
+        dirty = false;
+        clearCache();
+      }
+    }, "flushDevice");
     const scheduleFlush = /* @__PURE__ */ __name(() => {
       cancelFlush();
-      fallbackTimer = setTimeout(() => {
-        fallbackTimer = null;
-        void flushToSynced();
+      flushTimer = setTimeout(() => {
+        flushTimer = null;
+        void flushDevice();
       }, FLUSH_DELAY_MS);
     }, "scheduleFlush");
     const store = {
-      /** Read-only: never writes either store. */
+      /**
+       * Read this device's settings from the synced config. A localStorage cache
+       * that differs (an edit not yet flushed before a crash/reload) wins and is
+       * re-flushed. Read-only w.r.t. the synced config.
+       */
       load() {
-        const local = readLocalRaw();
-        if (local !== null) {
-          current = normalize(local);
-          diverged = true;
+        const synced = normalize(readSyncedDevice(readCustom()) || {});
+        const cached = readCache();
+        if (cached && normalizedStringify(cached) !== JSON.stringify(synced)) {
+          current = normalize(cached);
+          dirty = true;
+          scheduleFlush();
         } else {
-          current = normalize(readSyncedBlob(readCustom()) || {});
-          diverged = false;
+          current = synced;
+          dirty = false;
+          if (cached) clearCache();
         }
-        return { settings: current, diverged };
+        return { settings: current, diverged: this.isDiverged() };
       },
       get() {
         return current;
       },
+      /** This device's settings differ from the shared baseline (informational). */
       isDiverged() {
-        return diverged;
+        const shared = asMap(readBag(readCustom())).shared;
+        return normalizedStringify(shared || {}) !== JSON.stringify(normalize(current));
       },
-      /** True when this device cannot persist settings locally (see `writeLocal`). */
+      /** Retained for API compat; localStorage is no longer the durability path. */
       isLocalUnavailable() {
-        return localUnavailable;
+        return false;
       },
       /**
-       * Every edit is device-local. First edit snapshots the FULL settings
-       * (inherited values of untouched keys survive).
-       *
-       * If the local write cannot be made to stick (blocked / quota / no-op
-       * localStorage — a Linux-Electron report was losing 100% of settings on
-       * restart this way, silently), fall back to persisting into the SYNCED
-       * config, which is the only other durable store Thymer gives us. That
-       * device's settings then apply to all devices — strictly better than
-       * discarding them, and the panel says so.
+       * Apply an edit to THIS device: update memory, cache locally for instant UI,
+       * and schedule a durable flush to this device's synced slot. Never touches
+       * another device's slot or the shared baseline.
        */
       update(patch) {
         current = normalize({ ...current, ...patch });
-        if (normalizedStringify(readSyncedBlob(readCustom())) === JSON.stringify(current)) {
-          removeLocal();
-          diverged = false;
-          cancelFlush();
-          return { settings: current, diverged };
-        }
-        diverged = true;
-        writeLocal(JSON.stringify(current));
+        dirty = true;
+        writeCache(JSON.stringify(current));
         scheduleFlush();
-        return { settings: current, diverged };
+        return { settings: current, diverged: this.isDiverged() };
       },
       /**
-       * Persist the current settings to the durable synced config: ONE
-       * saveConfiguration (which reloads the plugin), then the local blob is
-       * cleared so this device follows the synced config. Now the shared primitive
-       * for BOTH the automatic debounced/boundary flush (`flushToSynced`) and the
-       * explicit ↑ "Apply to all devices" button. Resolves true when the settings
-       * are known to be in synced config (saved or already equal).
+       * "Copy these settings to all my devices": write the current settings to the
+       * shared baseline AND every existing device slot, in ONE saveConfiguration.
+       * (This is the header pill's ↑ action.)
        */
       async pushToAll() {
-        if (pushInFlight) return false;
-        pushInFlight = true;
-        try {
-          const api = await resolveConfigApi(plugin);
-          if (!api || typeof api.saveConfiguration !== "function") return false;
-          let conf = {};
-          try {
-            conf = api.getConfiguration?.() || plugin.getConfiguration?.() || {};
-          } catch {
-            return false;
-          }
-          if (typeof conf.name !== "string" || !conf.name.trim()) return false;
-          const custom = conf.custom && typeof conf.custom === "object" ? conf.custom : {};
-          const subset = pickSyncedSubset(normalize(current));
-          removeLocal();
-          diverged = false;
-          try {
-            if (normalizedStringify(readSyncedBlob(
-              /** @type {any} */
-              custom
-            )) !== normalizedStringify(subset)) {
-              await api.saveConfiguration(configWithPluginVersion(conf, { [key]: subset }, version));
-            }
-          } catch (err) {
-            writeLocal(JSON.stringify(current));
-            diverged = true;
-            throw err;
-          }
-          return true;
-        } catch {
-          return false;
-        } finally {
-          pushInFlight = false;
+        const subset = pickSyncedSubset(normalize(current));
+        const ok = await saveCustom((custom) => buildAllPatch(custom, subset));
+        if (ok) {
+          dirty = false;
+          clearCache();
         }
+        return ok;
       },
-      /** The ↺ "Discard device changes": drop local, re-adopt synced. */
+      /**
+       * "Reset this device": drop this device's slot so it re-inherits the shared
+       * baseline (or defaults). (The header pill's ↺ action.) Returns the settings
+       * this device now shows.
+       */
       discardLocal() {
         cancelFlush();
-        removeLocal();
-        current = normalize(readSyncedBlob(readCustom()) || {});
-        diverged = false;
+        dirty = false;
+        clearCache();
+        void saveCustom((custom) => buildResetPatch(custom));
+        const shared = asMap(readBag(readCustom())).shared;
+        current = normalize(shared || {});
         return current;
       },
       /**
-       * For folding into `setPluginDisabled(plugin, off, version, customPatch)`
-       * so a kill-switch toggle carries staged device settings in the SAME
-       * save (one reload, no race — CLAUDE.md rule). Call markFlushed() after
-       * that save succeeds if the fold should count as a push.
+       * For folding into `setPluginDisabled(plugin, off, version, customPatch)` so a
+       * kill-switch toggle carries this device's staged settings in the SAME save
+       * (one reload, no race). Returns the device-slot patch when dirty.
        */
       pendingCustomPatch() {
-        return diverged ? { [key]: pickSyncedSubset(normalize(current)) } : {};
+        if (!dirty) return {};
+        const subset = pickSyncedSubset(normalize(current));
+        return buildDevicePatch(readCustom(), subset);
       },
       markFlushed() {
         cancelFlush();
-        removeLocal();
-        diverged = false;
+        dirty = false;
+        clearCache();
       },
       /**
-       * Live-follow for non-diverged devices: when another device pushes,
-       * `global-plugin.updated` fires here; re-read the synced blob and, if
-       * it changed semantically, hand the fresh settings to the plugin's
-       * central apply (which each plugin already guards with its kill
-       * switch). Returns a detach function for onUnload.
+       * Live-follow: when another device does "apply to all" (or edits propagate),
+       * `global-plugin.updated` (or, for CollectionPlugins, the collection event the
+       * adopter also wires) fires; re-read this device's synced settings and, if
+       * they changed, hand them to the plugin's central apply. Also registers the
+       * boundary flush (hidden / pagehide) so a just-made edit isn't stranded in the
+       * localStorage cache. Returns a detach function for onUnload.
        */
       attachLifecycle({ onRemoteChange } = {}) {
         const handlerIds = [];
         const onHide = /* @__PURE__ */ __name(() => {
-          if (document.visibilityState === "hidden") void flushToSynced();
+          if (document.visibilityState === "hidden") void flushDevice();
         }, "onHide");
         const onPageHide = /* @__PURE__ */ __name(() => {
-          void flushToSynced();
+          void flushDevice();
         }, "onPageHide");
         try {
           document.addEventListener("visibilitychange", onHide);
@@ -3636,12 +3616,12 @@ ${report}
         try {
           const id = plugin.events?.on?.("global-plugin.updated", (event) => {
             try {
-              if (diverged) return;
+              if (dirty) return;
               if (event?.source?.isLocal) return;
               const guid = plugin.getGuid?.();
               const eventGuid = event?.pluginGuid || event?.guid || event?.rootId || null;
               if (eventGuid && guid && eventGuid !== guid) return;
-              const next = normalize(readSyncedBlob(readCustom()) || {});
+              const next = normalize(readSyncedDevice(readCustom()) || {});
               if (JSON.stringify(next) === JSON.stringify(current)) return;
               current = next;
               onRemoteChange?.(current);
@@ -3672,7 +3652,7 @@ ${report}
   __name(createSettingsStore, "createSettingsStore");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.4.2";
+  var PLUGIN_VERSION = "1.4.3";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
