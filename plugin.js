@@ -3236,6 +3236,50 @@ ${report}
     }
   }
   __name(syncPluginVersionOnLoad, "syncPluginVersionOnLoad");
+  async function healPluginIdentity(plugin, identity) {
+    if (!identity || typeof identity.name !== "string" || !identity.name.trim()) return;
+    const STUB_NAMES = ["New Global Plugin", "New Collection", "My Global Plugin"];
+    const api = await resolveConfigApi(plugin);
+    if (!api) return;
+    let conf = {};
+    try {
+      conf = api.getConfiguration?.() || plugin.getConfiguration?.() || {};
+    } catch {
+      return;
+    }
+    if (conf.ver === void 0 && conf.custom === void 0) return;
+    const hasStubName = typeof conf.name !== "string" || !conf.name.trim() || STUB_NAMES.includes(conf.name.trim());
+    const missingRepo = identity.sourceRepo && conf.__source_repo === void 0;
+    if (!hasStubName && !missingRepo) return;
+    try {
+      let ws = "default";
+      try {
+        ws = plugin.getWorkspaceGuid?.() || "default";
+      } catch {
+      }
+      const guardKey = `tps-identity-healed/${ws}/${identity.name}`;
+      if (sessionStorage.getItem(guardKey) === "1") return;
+      sessionStorage.setItem(guardKey, "1");
+    } catch {
+    }
+    const next = { ...conf };
+    if (hasStubName) {
+      next.name = identity.name;
+      if (identity.icon) next.icon = identity.icon;
+      if (identity.description) next.description = identity.description;
+    }
+    if (missingRepo) {
+      next.__source_repo = identity.sourceRepo;
+      if (conf.__source_files === void 0 && identity.sourceFiles) {
+        next.__source_files = { ...identity.sourceFiles };
+      }
+    }
+    try {
+      await api.saveConfiguration(next);
+    } catch {
+    }
+  }
+  __name(healPluginIdentity, "healPluginIdentity");
 
   // ../../shared/plugin-kill-switch.js
   var MARKER_SYNC_HORIZON_MS = 9e4;
@@ -3337,6 +3381,7 @@ ${report}
     let dirty = false;
     let saveInFlight = false;
     let flushTimer = null;
+    let settleTimer = null;
     const fnv1a = /* @__PURE__ */ __name((s) => {
       let h2 = 2166136261;
       for (let i = 0; i < s.length; i++) {
@@ -3593,6 +3638,43 @@ ${report}
         clearCache();
       },
       /**
+       * Post-push pill settle. A successful push saves the config, which reloads
+       * the plugin; the fresh instance can render its scope pill from a config
+       * snapshot the save hasn't reached yet, and the follow-up config event is
+       * filtered as local (attachLifecycle, by design) — so nothing repaints and
+       * the pill sits on "This device" even though the push landed. Re-read the
+       * synced config on a short interval until it converges: when the adopted
+       * settings changed, `onAdopt(settings)` fires (apply + full panel render);
+       * otherwise `refreshPill()` fires (pill-only repaint). A genuine local
+       * edit still wins — load() carries it through the crash cache. No-ops
+       * instantly when already settled. Call from the push success callback AND
+       * the post-reload panel heal; returns a cancel fn for onUnload.
+       */
+      settleAfterPush({ onAdopt = void 0, refreshPill = void 0, tries = 8, intervalMs = 500 } = {}) {
+        if (settleTimer) {
+          clearTimeout(settleTimer);
+          settleTimer = null;
+        }
+        const tick = /* @__PURE__ */ __name((left) => {
+          const before = JSON.stringify(current);
+          const next = this.load().settings;
+          if (JSON.stringify(next) !== before) onAdopt?.(next);
+          else refreshPill?.();
+          if (left <= 0 || !this.isDiverged()) return;
+          settleTimer = setTimeout(() => {
+            settleTimer = null;
+            tick(left - 1);
+          }, intervalMs);
+        }, "tick");
+        tick(tries);
+        return () => {
+          if (settleTimer) {
+            clearTimeout(settleTimer);
+            settleTimer = null;
+          }
+        };
+      },
+      /**
        * Live-follow: when another device does "apply to all" (or edits propagate),
        * `global-plugin.updated` (or, for CollectionPlugins, the collection event the
        * adopter also wires) fires; re-read this device's synced settings and, if
@@ -3633,6 +3715,10 @@ ${report}
         }
         return () => {
           cancelFlush();
+          if (settleTimer) {
+            clearTimeout(settleTimer);
+            settleTimer = null;
+          }
           try {
             document.removeEventListener("visibilitychange", onHide);
             window.removeEventListener("pagehide", onPageHide);
@@ -3652,7 +3738,7 @@ ${report}
   __name(createSettingsStore, "createSettingsStore");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.4.4";
+  var PLUGIN_VERSION = "1.4.5";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
@@ -3937,6 +4023,8 @@ ${report}
     );
     /** @type {(() => void) | null} */
     _detachSettingsLifecycle = null;
+    /** @type {(() => void) | null} */
+    _cancelPillSettle = null;
     /** @type {string | null} panel.closed event handler id */
     _panelClosedHandler = null;
     /** @type {string[]} collection.* event handler ids (refetch triggers) */
@@ -3945,6 +4033,13 @@ ${report}
       pingInstall("collection-colors");
       pingActive("collection-colors");
       void syncPluginVersionOnLoad(this, PLUGIN_VERSION);
+      void healPluginIdentity(this, {
+        name: "Collection Colors",
+        icon: "palette",
+        description: "Color collection icons and labels in the sidebar. One install, applies to every collection.",
+        sourceRepo: "https://github.com/akaready/thymer-collection-colors",
+        sourceFiles: { branch: "main", json: "plugin.json", js: "plugin.js" }
+      });
       this._disabled = readKillSwitch(this);
       installInstantTooltip();
       this._colors = this._loadColors();
@@ -4013,6 +4108,7 @@ ${report}
         if (staleRoot && staleRoot.parentElement) {
           this._panelEl = staleRoot.parentElement;
           void this._renderPanel();
+          this._refreshScopePillUntilSettled();
         }
       } catch {
       }
@@ -4041,6 +4137,8 @@ ${report}
       }
     }
     onUnload() {
+      this._cancelPillSettle?.();
+      this._cancelPillSettle = null;
       this._stopAnimation();
       if (this._sidebarObserver) {
         this._sidebarObserver.disconnect();
@@ -5019,7 +5117,7 @@ ${report}
               this.ui.addToaster({ title: "Collection Colors", message: "Settings applied to all devices", dismissible: true, autoDestroyTime: 3e3 });
             } catch {
             }
-            this._refreshScopePill();
+            this._refreshScopePillUntilSettled();
           });
         }, "onPush"),
         onDiscard: /* @__PURE__ */ __name(() => {
@@ -5039,6 +5137,30 @@ ${report}
     _refreshScopePill() {
       const el3 = this._panelEl?.querySelector?.(".tps-scope");
       if (el3) el3.replaceWith(scopeCluster(this._scopeArgs()));
+    }
+    /** Post-push pill settle — see settleAfterPush in shared/plugin-settings.js. */
+    _refreshScopePillUntilSettled() {
+      this._cancelPillSettle?.();
+      this._cancelPillSettle = this._settingsStore.settleAfterPush({
+        onAdopt: /* @__PURE__ */ __name((settings) => {
+          const wasAnimate = !!this._settings.animate;
+          this._settings = /** @type {GlobalSettings} */
+          settings;
+          if (!this._disabled) {
+            this._writeTintStyle();
+            this._annotateAutocomplete();
+            if (this._settings.animate && !wasAnimate && !this._animRunning) {
+              this._animRunning = true;
+              this._startAnimation();
+            } else if (!this._settings.animate && wasAnimate && this._animRunning) {
+              this._animRunning = false;
+              this._stopAnimation();
+            }
+          }
+          void this._renderPanel();
+        }, "onAdopt"),
+        refreshPill: /* @__PURE__ */ __name(() => this._refreshScopePill(), "refreshPill")
+      });
     }
     /** @param {() => HTMLElement} renderBody */
     _staticSection(renderBody) {
