@@ -2435,6 +2435,18 @@ ${report}
     });
   }
   __name(pluginHeaderFromConfig, "pluginHeaderFromConfig");
+  var SECTION_STATE = (() => {
+    const g = (
+      /** @type {Record<string, any>} */
+      /** @type {unknown} */
+      globalThis
+    );
+    if (!g.__tpsSectionState) g.__tpsSectionState = /* @__PURE__ */ new Map();
+    return (
+      /** @type {Map<string, boolean>} */
+      g.__tpsSectionState
+    );
+  })();
 
   // ../../shared/settings-ui/tailwind-palette.js
   var TW_SHADES = Object.freeze([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]);
@@ -3445,6 +3457,7 @@ ${report}
     let dirty = false;
     let editRevision = 0;
     let localUnavailable = false;
+    let restoredFromMirror = false;
     let writeChain = Promise.resolve();
     let flushTimer = null;
     let settleTimer = null;
@@ -3607,6 +3620,45 @@ ${report}
       } catch {
       }
     }, "clearCache");
+    const mirrorKey = /* @__PURE__ */ __name(() => `${slug}/${workspaceGuid()}${scope()}/mirror`, "mirrorKey");
+    const readMirror = /* @__PURE__ */ __name(() => {
+      try {
+        const raw = localStorage.getItem(mirrorKey());
+        if (raw === null) return null;
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch {
+        return null;
+      }
+    }, "readMirror");
+    const writeMirror = /* @__PURE__ */ __name((bag) => {
+      try {
+        const m = asMap(bag);
+        if (m.shared === void 0 && !Object.keys(m.byDevice).length) return;
+        localStorage.setItem(mirrorKey(), JSON.stringify(prune(m)));
+      } catch {
+      }
+    }, "writeMirror");
+    const recoveryFlagKey = /* @__PURE__ */ __name(() => `tps-settings-recovered/${slug}/${workspaceGuid()}${scope()}`, "recoveryFlagKey");
+    const recoveryAttempted = /* @__PURE__ */ __name(() => {
+      try {
+        return sessionStorage.getItem(recoveryFlagKey()) === "1";
+      } catch {
+        return false;
+      }
+    }, "recoveryAttempted");
+    const markRecoveryAttempted = /* @__PURE__ */ __name(() => {
+      try {
+        sessionStorage.setItem(recoveryFlagKey(), "1");
+      } catch {
+      }
+    }, "markRecoveryAttempted");
+    const bagIsAbsent = /* @__PURE__ */ __name((custom) => {
+      const bag = readBag(custom);
+      if (!bag || typeof bag !== "object") return true;
+      const m = asMap(bag);
+      return m.shared === void 0 && !Object.keys(m.byDevice).length;
+    }, "bagIsAbsent");
     const saveCustomNow = /* @__PURE__ */ __name(async (buildPatch) => {
       try {
         const api = await resolveConfigApi(plugin);
@@ -3623,9 +3675,13 @@ ${report}
         const patchKeys = Object.keys(patch);
         if (!patchKeys.length) return true;
         const converged = patchKeys.every((patchKey) => patchKey === key ? bagConverged(custom[key], patch[key]) : JSON.stringify(custom[patchKey]) === JSON.stringify(patch[patchKey]));
-        if (converged) return true;
+        if (converged) {
+          if (patch[key] !== void 0) writeMirror(patch[key]);
+          return true;
+        }
         const result = await api.saveConfiguration(configWithPluginVersion(conf, patch, version));
         if (result === false) return false;
+        if (patch[key] !== void 0) writeMirror(patch[key]);
         return true;
       } catch {
         return false;
@@ -3682,7 +3738,16 @@ ${report}
        */
       load() {
         if (dirty) return { settings: current, diverged: this.isDiverged() };
-        const custom = readCustom();
+        let custom = readCustom();
+        if (bagIsAbsent(custom)) {
+          const mirrored = readMirror();
+          if (mirrored && !recoveryAttempted()) {
+            markRecoveryAttempted();
+            restoredFromMirror = true;
+            void saveCustomNow(() => ({ [key]: prune(asMap(mirrored)) }));
+            custom = { ...custom, [key]: prune(asMap(mirrored)) };
+          }
+        }
         const synced = normalize(readSyncedDevice(custom) || {});
         const cached = readCache();
         if (cached && normalizedStringify(cached) !== JSON.stringify(synced)) {
@@ -3692,6 +3757,7 @@ ${report}
         } else {
           current = synced;
           dirty = false;
+          writeMirror(readBag(custom));
           if (cached) clearCache();
           const resolved = resolveDeviceSlotKey(asMap(readBag(custom)));
           if (resolved && resolved !== deviceKey) {
@@ -3714,6 +3780,15 @@ ${report}
       /** True when the immediate recovery journal could not be verified. */
       isLocalUnavailable() {
         return localUnavailable;
+      },
+      /**
+       * True when this load found the synced settings gone and rebuilt them from
+       * the durable local mirror. Worth surfacing to the user — a silent recovery
+       * hides that something wiped their config, and they should know to check
+       * whatever did it.
+       */
+      wasRestoredFromMirror() {
+        return restoredFromMirror;
       },
       /**
        * Lossless migration/recovery entry point. The normalized value is journaled
@@ -3929,7 +4004,7 @@ ${report}
   __name(createSettingsStore, "createSettingsStore");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.4.6";
+  var PLUGIN_VERSION = "1.4.7";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
@@ -4636,6 +4711,9 @@ ${report}
     _colorsKey() {
       return `collection-colors/${this.getWorkspaceGuid()}/colors`;
     }
+    _colorsMirrorKey() {
+      return `collection-colors/${this.getWorkspaceGuid()}/colors-mirror`;
+    }
     /** @param {string} key @returns {boolean} */
     _hasLocalObject(key) {
       return this._loadLocalObject(key) !== null;
@@ -4664,7 +4742,38 @@ ${report}
     /** @returns {Record<string, ColorEntry>} */
     _loadColors() {
       const local = this._loadLocalObject(this._colorsKey());
-      return this._normalizeColors(local !== null ? local : this._customConfig().colors || {});
+      if (local !== null) return this._normalizeColors(local);
+      const synced = this._customConfig().colors;
+      if (synced !== void 0) {
+        this._writeColorsMirror(synced);
+        return this._normalizeColors(synced);
+      }
+      const mirrored = this._loadLocalObject(this._colorsMirrorKey());
+      if (mirrored && Object.keys(mirrored).length) {
+        const restored = this._normalizeColors(mirrored);
+        try {
+          localStorage.setItem(this._colorsKey(), JSON.stringify(restored));
+        } catch {
+        }
+        this._colorsDirty = true;
+        this._scheduleConfigSave();
+        return restored;
+      }
+      return {};
+    }
+    /**
+     * Durable copy of the colour map, refreshed whenever we see or write a
+     * healthy one and never cleared — unlike the journal above, which is wiped
+     * the moment config agrees with it. Deliberately never consulted when the
+     * synced side has a value, so a stale copy cannot outvote another device.
+     * @param {any} colors
+     */
+    _writeColorsMirror(colors) {
+      try {
+        if (!colors || typeof colors !== "object" || !Object.keys(colors).length) return;
+        localStorage.setItem(this._colorsMirrorKey(), JSON.stringify(colors));
+      } catch {
+      }
     }
     /** @param {any} raw @returns {Record<string, ColorEntry>} */
     _normalizeColors(raw) {
@@ -4874,6 +4983,7 @@ ${report}
         }
         if (this._colorsRevision === revision) {
           this._colorsDirty = false;
+          this._writeColorsMirror(colors);
           try {
             localStorage.removeItem(this._colorsKey());
           } catch {
@@ -5275,6 +5385,7 @@ ${report}
               }
               if (this._colorsRevision === revision) {
                 this._colorsDirty = false;
+                this._writeColorsMirror(this._normalizeColors(this._colors));
                 try {
                   localStorage.removeItem(this._colorsKey());
                 } catch {
