@@ -3164,6 +3164,25 @@ ${report}
   }
   __name(renderedToHex, "renderedToHex");
 
+  // ../../shared/settings-ui/palettes.js
+  var PALETTE_PRESETS = Object.freeze([
+    { id: "rainbow", label: "Rainbow", shadeIdx: 5, families: ["red", "orange", "amber", "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue", "indigo", "violet", "purple", "fuchsia", "pink", "rose"] },
+    { id: "sunset", label: "Sunset", shadeIdx: 5, families: ["rose", "red", "orange", "amber", "yellow"] },
+    { id: "fire", label: "Fire", shadeIdx: 5, families: ["yellow", "amber", "orange", "red"] },
+    { id: "ocean", label: "Ocean", shadeIdx: 5, families: ["teal", "cyan", "sky", "blue", "indigo"] },
+    { id: "forest", label: "Forest", shadeIdx: 6, families: ["lime", "green", "emerald", "teal", "cyan"] },
+    { id: "meadow", label: "Meadow", shadeIdx: 5, families: ["lime", "green", "emerald", "teal"] },
+    { id: "berry", label: "Berry", shadeIdx: 5, families: ["blue", "indigo", "violet", "purple", "fuchsia", "pink"] },
+    { id: "candy", label: "Candy", shadeIdx: 5, families: ["rose", "pink", "fuchsia", "purple", "violet"] },
+    { id: "warm", label: "Warm", shadeIdx: 5, families: ["red", "orange", "amber", "yellow", "rose"] },
+    { id: "cool", label: "Cool", shadeIdx: 5, families: ["teal", "cyan", "sky", "blue", "indigo", "violet"] },
+    { id: "neon", label: "Neon", shadeIdx: 4, families: ["lime", "cyan", "blue", "fuchsia", "rose"] },
+    { id: "pastels", label: "Pastels", shadeIdx: 3, families: ["rose", "orange", "amber", "lime", "emerald", "sky", "blue", "violet", "fuchsia"] },
+    { id: "jewel", label: "Jewel", shadeIdx: 7, families: ["emerald", "teal", "blue", "violet", "fuchsia", "rose"] },
+    { id: "grayscale", label: "Grayscale", family: "slate", shades: [5, 6, 7, 8, 9] },
+    { id: "mono", label: "Mono Blue", family: "blue", shades: [4, 5, 6, 7, 8] }
+  ]);
+
   // ../../shared/plugin-version.js
   var CONFIG_WRITE_QUEUES_KEY = "__tpsPluginConfigWriteQueues";
   function configWriteIdentity(plugin) {
@@ -4004,7 +4023,7 @@ ${report}
   __name(createSettingsStore, "createSettingsStore");
 
   // plugin.js
-  var PLUGIN_VERSION = "1.4.7";
+  var PLUGIN_VERSION = "1.4.8";
   var ROOT_CLASS = "plg-collection-colors";
   var COLORS_CHANGED_EVENT = "collection-colors:changed";
   var PANEL_TYPE = "settings";
@@ -4046,23 +4065,7 @@ ${report}
     Pink: { 100: "#fce7f3", 200: "#fbcfe8", 300: "#f9a8d4", 400: "#f472b6", 500: "#ec4899", 600: "#db2777", 700: "#be185d", 800: "#9d174d", 900: "#831843" },
     Rose: { 100: "#ffe4e6", 200: "#fecdd3", 300: "#fda4af", 400: "#fb7185", 500: "#f43f5e", 600: "#e11d48", 700: "#be123c", 800: "#9f1239", 900: "#881337" }
   });
-  var PRESETS = Object.freeze([
-    { id: "rainbow", label: "Rainbow", shadeIdx: 5, families: ["red", "orange", "amber", "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue", "indigo", "violet", "purple", "fuchsia", "pink", "rose"] },
-    { id: "sunset", label: "Sunset", shadeIdx: 5, families: ["rose", "red", "orange", "amber", "yellow"] },
-    { id: "fire", label: "Fire", shadeIdx: 5, families: ["yellow", "amber", "orange", "red"] },
-    { id: "ocean", label: "Ocean", shadeIdx: 5, families: ["teal", "cyan", "sky", "blue", "indigo"] },
-    { id: "forest", label: "Forest", shadeIdx: 6, families: ["lime", "green", "emerald", "teal", "cyan"] },
-    { id: "meadow", label: "Meadow", shadeIdx: 5, families: ["lime", "green", "emerald", "teal"] },
-    { id: "berry", label: "Berry", shadeIdx: 5, families: ["blue", "indigo", "violet", "purple", "fuchsia", "pink"] },
-    { id: "candy", label: "Candy", shadeIdx: 5, families: ["rose", "pink", "fuchsia", "purple", "violet"] },
-    { id: "warm", label: "Warm", shadeIdx: 5, families: ["red", "orange", "amber", "yellow", "rose"] },
-    { id: "cool", label: "Cool", shadeIdx: 5, families: ["teal", "cyan", "sky", "blue", "indigo", "violet"] },
-    { id: "neon", label: "Neon", shadeIdx: 4, families: ["lime", "cyan", "blue", "fuchsia", "rose"] },
-    { id: "pastels", label: "Pastels", shadeIdx: 3, families: ["rose", "orange", "amber", "lime", "emerald", "sky", "blue", "violet", "fuchsia"] },
-    { id: "jewel", label: "Jewel", shadeIdx: 7, families: ["emerald", "teal", "blue", "violet", "fuchsia", "rose"] },
-    { id: "grayscale", label: "Grayscale", family: "slate", shades: [5, 6, 7, 8, 9] },
-    { id: "mono", label: "Mono Blue", family: "blue", shades: [4, 5, 6, 7, 8] }
-  ]);
+  var PRESETS = PALETTE_PRESETS;
   var ANIM_TICK_MS = 90;
   var APPLY_TO_OPTIONS = (
     /** @type {const} */
